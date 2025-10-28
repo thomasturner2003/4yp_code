@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import csv_interface as data
 
 def reynolds(rho, V, D, mu):
     """Reynolds number"""
@@ -68,6 +69,25 @@ def pressure_drop_darcy(rho, V, D, L, mu, eps=1.5e-5, K_minor=0.0, use_colebrook
         "dp_total_Pa": dp_total
     }
 
-res = pressure_drop_darcy(rho, V, D, L, mu, eps, K_minor, use_colebrook=True)
-for k,v in res.items():
-    print(f"{k}: {v}")
+def run_case(case_ID):
+    try:
+        case = data.read_case(case_ID)
+        fluid = data.read_fluid(case['Working fluid'])
+        disturbance_1 = data.read_disturbance(case['Disturbance 1'])
+        disturbance_2 = data.read_disturbance(case['Disturbance 2'])
+        disturbance_3 = data.read_disturbance(case['Disturbance 3'])
+        disturbance_4 = data.read_disturbance(case['Disturbance 4'])
+        disturbance_5 = data.read_disturbance(case['Disturbance 5'])
+        disturbances= [disturbance_1, disturbance_2, disturbance_3, disturbance_4, disturbance_5]
+        k = 0;
+        for disturbance in disturbances:
+            k += float(disturbance['K'])
+        res = pressure_drop_darcy(float(fluid['Rho']), float(case['Velocity']), float(case['Diameter']), float(case['Length']), float(fluid['Mu']), float(case['Roughness']), k, use_colebrook=True)
+        data.write_result(case_ID, "Empirical", res["dp_total_Pa"])
+        return res
+    except:
+        print("⚠️  Warning - Test failed!")
+
+run_case("8")
+run_case("9")
+run_case("10")

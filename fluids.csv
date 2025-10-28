@@ -1,3 +1,4 @@
-ID	Name	rho	mu	T
-1	water	998	1.00E-03	20
-2	water60	998	4.66E-04	60
+Name,Rho,Mu,T
+water,998,1.00E-03,20
+oil,888,2.50E-03,20
+air,1.225,1.79E-05,20

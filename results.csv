@@ -1,2 +1,5 @@
-ID	Empirical dP	CFD dP
-1		
+Case_ID,Type,Dp
+7,Empirical,10693.808949524091
+8,Empirical,1.7536160787605817
+9,Empirical,21.013019777299746
+10,Empirical,111.81011371841095
