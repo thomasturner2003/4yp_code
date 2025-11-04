@@ -88,6 +88,5 @@ def run_case(case_ID):
     except:
         print("⚠️  Warning - Test failed!")
 
-run_case("8")
-run_case("9")
-run_case("10")
+for i in range(5, 8):
+    run_case(str(i))
