@@ -1,3 +1,4 @@
-Name,K
-elbow,0.35
-none,0
+Name,K,Cd
+orifice,NA,0.61
+elbow,0.35,NA
+none,0,0
