@@ -1,8 +1,4 @@
-ID,Boundary layers,Solver type,Max element size,Growth rate,Number of cells,Max aspect ratio,Max skewness,CAD Description
-1,0,tetrahedral,1,1.2,,,,Elbow
-2,1,polyhedra,2,1.2,,,,Double Elbow
-3,2,hexcore,3,1.2,,,,Elbow
-4,3,polyhedra,2,1.2,,,,Orifice 
-5,4,hexcore,2,1.2,,,,Elbow
-6,5,polyhedra,3,1.2,,,,Double Elbow
-7,6,polyhedra,3,1.2,,,,Orifice 
+ID,Boundary layers,Solver type,Surface mesh min,Surface mesh max,Max element size,Growth rate,Number of cells,Minimum orthoganility quality,Maximum skewness,Maximum Aspect Ratio,CAD ID
+1,3,polyhedra,0.3,3,2,1.2,33840,0.294,0.707,11.1,1
+2,3,polyhedra,0.3,3,1,1.2,69842,0.335,0.615,9.655,1
+3,3,tetrahedral,0.3,3,2,1.2,99749,0.112,0.888,18.7,1
