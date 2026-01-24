@@ -199,7 +199,7 @@ def calculate_pressure_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow
         flow (Flow): Flow in the pipe
 
     Raises:
-        ValueError: Non matching number of pipes and bends
+        ValueError: Incorrect number of pipes or bends
 
     Returns:
         float: Total pressure drop [Pa]
@@ -372,6 +372,7 @@ def find_scramble_k(k:float, re:float, curvature:float, inflow_length:float, out
 
     Raises:
         ValueError: If curvature does not have an associated power law
+        ValueError: If the inflow length is smaller than 4D
 
     Returns:
         float: k
@@ -379,6 +380,9 @@ def find_scramble_k(k:float, re:float, curvature:float, inflow_length:float, out
     outlet_correction = interpolate_k_outlet_correction(k/interpolate_re_correction(re),outflow_length)
     if  curvature not in [2,3]:
             raise ValueError(f"You must give a power law relationship for the curvature")
+    if inflow_length < 4:
+        raise ValueError(f"Outside of power law range")
+    
     if inflow_length > 30:
         scramble_correction = 1
     elif curvature == 2:
