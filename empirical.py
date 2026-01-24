@@ -1,5 +1,4 @@
 import math
-import numpy as np
 import csv_interface as data
 
 def reynolds(rho, V, D, mu):
@@ -12,6 +11,11 @@ def swamee_jain_f(Re, eps, D):
     if Re <= 0:
         raise ValueError("Re must be > 0")
     return 0.25 / (math.log10(eps/(3.7*D) + 5.74/(Re**0.9))**2)
+
+def blasius_darcy(L, rho=998, V=3, D=13e-3, mu=1e-3):
+    re = reynolds(rho, V, D, mu)
+    f = 0.3164*(re**-0.25)
+    return f*(L/D)*(rho*V**2)/2
 
 def colebrook_f_iterative(Re, eps, D, tol=1e-6, maxiter=50):
     """Solve Colebrook equation by fixed-point iteration (or Newton-style update).
@@ -68,6 +72,9 @@ def pressure_drop_darcy(rho, V, D, L, mu, eps=1.5e-5, K_minor=0.0, use_colebrook
         "dp_minor_Pa": dp_minor,
         "dp_total_Pa": dp_total
     }
+    
+def predicted_K(rho, V, dp):
+    return (dp)/(0.5*rho*V*V)
 
 def run_case(case_ID):
     try:
@@ -87,5 +94,47 @@ def run_case(case_ID):
         return res
     except:
         print("⚠️  Warning - Test failed!")
+        
+def find_U_length(inlet_outlet_length, seperation, bend_radius):
+    return (2*inlet_outlet_length + seperation + 2*(2*bend_radius*math.pi/4))/1000
 
+v =[2]
+#sep =[26, 39, 52, 78, 94, 133, 172, 200, 300, 500]
+sep = [26, 39, 52, 65, 78, 91, 104, 117]
+k = 0.2355
+"""
+leng = find_U_length(260, sep[0], 26)
+pd = pressure_drop_darcy(998, 2.05, 0.013, leng, 1e-3, eps=1.5e-5, K_minor=2*k, use_colebrook=False)
+print(f"s={sep}, v={2.05}, dp={pd.get("dp_total_Pa")}")
+pd = pressure_drop_darcy(998, 2.15, 0.013, leng, 1e-3, eps=1.5e-5, K_minor=2*k, use_colebrook=False)
+print(f"s={sep}, v={2.15}, dp={pd.get("dp_total_Pa")}")
+print(" ")
+"""
+"""
+for s in sep:
+    leng = find_U_length(260, s, 26)
+    for v_i in v:
+        pd = pressure_drop_darcy(998, v_i, 0.013, leng, 1e-3, eps=1.5e-5, K_minor=2*k, use_colebrook=False)
+        print(f"s={s}, v={v_i}, dp={pd.get("dp_total_Pa")}")
+"""
+ls = [0.35]
+vs = [5]
+for l in ls:
+    for v in vs:
+        print(f"{pressure_drop_darcy(998, v, 0.01, l, 1e-3, eps=0, K_minor=0.0, use_colebrook=True).get("dp_total_Pa")}")
+"""
+e=0
+sep =[39]
+leng = []
+for s in sep:
+    leng.append(find_U_length(130, s, 0))
 
+for l in leng:
+    print(l)
+    for v in range(2,11):
+        v/=2
+        print(f"{pressure_drop_darcy(998, v, 0.013, l, 1e-3, eps=0, K_minor=0.0, use_colebrook=True).get("dp_total_Pa")}")
+        #print(f"v={v} {blasius_darcy(l, V=v)}")
+    print(" ")
+
+"""
