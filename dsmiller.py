@@ -1,9 +1,5 @@
 import pandas as pd
 import numpy as np
-import csv
-import random
-import math
-import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 # GLOBAL
 
@@ -515,5 +511,4 @@ def find_scramble_k(k:float, scramble_coefficient:float, re:float, curvature:flo
             raise ValueError(f"You must give a power law relationship for the curvature")
     
     return k*outlet_correction*scramble_coefficient
-
 

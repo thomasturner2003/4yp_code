@@ -33,7 +33,7 @@ def json_case_generator(file_path):
         yield case
         
 
-file_paths = ['Dataset/long_long_triplets.json', 'Dataset/short_long_triplets.json', 'Dataset/short_short_triplets.json']
+file_paths = ['Dataset/short_short_triplets.json', 'Dataset/short_long_triplets.json', 'Dataset/long_long_triplets.json' ]
 solver = dsmiller.Solver("oriented")
 ito = dsmiller.Ito()
 diameter = 10E-3
@@ -54,5 +54,5 @@ for file_path in file_paths:
         errors.append((case['pressure_drop'] - solver.get_pressure_drop(bends, pipes, flow)[0]) / case['pressure_drop'])
         outlet_inlet_dp = dsmiller.blasius_darcy(case['inlet_length']+ case['outlet_length'], flow)
         elbows_errors.append((case['pressure_drop'] - solver.get_pressure_drop(bends, pipes, flow)[0]) / (case['pressure_drop']-outlet_inlet_dp))
-    print(f"{file_path}, {100*np.mean(np.abs(errors)):.2f}%")
+    print(f"{file_path}, Absolute: {100*np.mean(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.mean(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}")
 

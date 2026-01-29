@@ -1,5 +1,5 @@
 import math
-import csv_interface as data
+
 
 def reynolds(rho, V, D, mu):
     """Reynolds number"""
@@ -97,44 +97,3 @@ def run_case(case_ID):
         
 def find_U_length(inlet_outlet_length, seperation, bend_radius):
     return (2*inlet_outlet_length + seperation + 2*(2*bend_radius*math.pi/4))/1000
-
-v =[2]
-#sep =[26, 39, 52, 78, 94, 133, 172, 200, 300, 500]
-sep = [26, 39, 52, 65, 78, 91, 104, 117]
-k = 0.2355
-"""
-leng = find_U_length(260, sep[0], 26)
-pd = pressure_drop_darcy(998, 2.05, 0.013, leng, 1e-3, eps=1.5e-5, K_minor=2*k, use_colebrook=False)
-print(f"s={sep}, v={2.05}, dp={pd.get("dp_total_Pa")}")
-pd = pressure_drop_darcy(998, 2.15, 0.013, leng, 1e-3, eps=1.5e-5, K_minor=2*k, use_colebrook=False)
-print(f"s={sep}, v={2.15}, dp={pd.get("dp_total_Pa")}")
-print(" ")
-"""
-"""
-for s in sep:
-    leng = find_U_length(260, s, 26)
-    for v_i in v:
-        pd = pressure_drop_darcy(998, v_i, 0.013, leng, 1e-3, eps=1.5e-5, K_minor=2*k, use_colebrook=False)
-        print(f"s={s}, v={v_i}, dp={pd.get("dp_total_Pa")}")
-"""
-ls = [0.35]
-vs = [5]
-for l in ls:
-    for v in vs:
-        print(f"{pressure_drop_darcy(998, v, 0.01, l, 1e-3, eps=0, K_minor=0.0, use_colebrook=True).get("dp_total_Pa")}")
-"""
-e=0
-sep =[39]
-leng = []
-for s in sep:
-    leng.append(find_U_length(130, s, 0))
-
-for l in leng:
-    print(l)
-    for v in range(2,11):
-        v/=2
-        print(f"{pressure_drop_darcy(998, v, 0.013, l, 1e-3, eps=0, K_minor=0.0, use_colebrook=True).get("dp_total_Pa")}")
-        #print(f"v={v} {blasius_darcy(l, V=v)}")
-    print(" ")
-
-"""
