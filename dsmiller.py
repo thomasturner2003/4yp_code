@@ -190,7 +190,7 @@ def get_bend_correction_factor(r_d_1: int, r_d_2: int, ls_d: int, theta_c: int) 
         return None
 
 
-def calculate_pressure_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow)->float:
+def calculate_pressure_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow, orientation_dependent:bool=True)->tuple[float,float,float]:
     """Calculates the pressure drop considering the level of shedding (scramble) from the previous inlet and the outlet correction only
 
     Args:
@@ -211,20 +211,32 @@ def calculate_pressure_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow
     L_d = 0
     for pipe in pipes:
         L_d +=  pipe.length_d
-    drop = blasius_darcy(L_d*flow.diameter, flow)
+    avg_drop = blasius_darcy(L_d*flow.diameter, flow)
+    min_drop = avg_drop
+    max_drop = avg_drop
     # pressure drop in the bends
-    K = 0
     bend = bends[0]
-    prev_pipe = PipeSection(1000) # no scramble at the inlet
     next_pipe = pipes[1]
-    K+=find_scramble_k(bend.k_value, flow.reynolds, bend.r_d, prev_pipe.length_d, next_pipe.length_d)
+    K_avg=find_scramble_k(bend.k_value, 1, flow.reynolds, bend.r_d, next_pipe.length_d)
+    K_min = K_avg
+    K_max = K_avg
     for i in range(1,len(bends)):
+        prev_bend = bends[i-1]
         bend = bends[i]
         prev_pipe = pipes[i]
         next_pipe = pipes[i+1]
-        K+=find_scramble_k(bend.k_value, flow.reynolds, bend.r_d, prev_pipe.length_d, next_pipe.length_d)
-    drop += (0.5*flow.rho*flow.speed**2) * K
-    return drop
+        if orientation_dependent:
+            avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds, angles=[relative_orientation(prev_bend, bend)])
+        else:
+            avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds)
+        K_avg+=find_scramble_k(bend.k_value, avg_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
+        K_min+=find_scramble_k(bend.k_value, min_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
+        K_max+=find_scramble_k(bend.k_value, max_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
+    avg_drop += (0.5*flow.rho*flow.speed**2) * K_avg
+    min_drop += (0.5*flow.rho*flow.speed**2) * K_min
+    max_drop += (0.5*flow.rho*flow.speed**2) * K_max
+    
+    return avg_drop,min_drop,max_drop
 
 
 def calculate_niave_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow)->float:
@@ -245,11 +257,35 @@ def calculate_niave_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow)->
 
 
 def calculate_k(loss:float, L:float, flow:Flow)->float:
+    """ Calculates the value of K given the loss
+
+    Args:
+        loss (float): Pressure drop [Pa]
+        L (float): Pipe length [m]
+        flow (Flow): Characteristic flow [-]
+
+    Returns:
+        float: K [-]
+    """
     loss -= blasius_darcy(L, flow)
     return loss/(0.5*flow.rho*flow.speed**2)
 
 
 def get_interpolated_correction_factor(r1, r2, separation, angle) -> float:
+    """Finds the correction factor for an interpolated set of bends
+
+    Args:
+        r1 (_type_): R/D of bend 1 [-]
+        r2 (_type_): R/D of bend 2 [-]
+        separation (_type_): Seperation length/D [-]
+        angle (_type_): Relative orientation [deg]
+
+    Raises:
+        ValueError: Does not interpolate between different curvatures will raise an error if data is not included
+        
+    Returns:
+        float: Correction factor [-]
+    """
     # Condition: If separation is 30 or greater, correction is exactly 1.0, this follows assumption from Miller
     if separation >= 30:
         return 1.0
@@ -269,8 +305,7 @@ def get_interpolated_correction_factor(r1, r2, separation, angle) -> float:
             points.append((log_sep, ang))
             values.append(factor)
             
-    # Add the "Convergence Point" at sep=30 to the interpolation data
-    # This ensures the curve pulls toward 1.0 as it approaches 30
+    # Add the "Convergence Point" at sep=30 to the interpolation data and at sep=20 
     for ang in [0, 30, 60, 90, 120, 150, 180]:
         points.append((np.log(1+30), ang))
         values.append(1.0)
@@ -292,9 +327,14 @@ def get_interpolated_correction_factor(r1, r2, separation, angle) -> float:
 
 
 def interpolate_re_correction(re: float, input_filename="reynolds correction.csv") -> float:
-    """
-    Reads data from input_filename and performs linear interpolation 
-    against log10(Re) to find the specific correction factor for a given Re.
+    """Interpolates the correction factor for the given reynolds from data from DS Miller
+
+    Args:
+        re (float): Reynolds number [-]
+        input_filename (str, optional): _description_. Defaults to "reynolds correction.csv".
+
+    Returns:
+        float: Correction factor [-]
     """
     # 1. Load data from CSV
     df = pd.read_csv(input_filename)
@@ -318,11 +358,15 @@ def interpolate_re_correction(re: float, input_filename="reynolds correction.csv
 
 
 def interpolate_k_outlet_correction(k_star: float, outlet_length: float, input_filename="outlet correction.csv") -> float:
-    """
-    Reads data from input_filename and performs linear interpolation 
-    against K_star and ln(Outlet length + 1).
-    K_star is the K value at reynolds 1e6
-    Takes in outlet length as the number of diameters
+    """Calculates the correction factor due to shortened outlet using data from DS Miller
+
+    Args:
+        k_star (float): K value at Reynolds = 1E6 [-]
+        outlet_length (float): length/D [-]
+        input_filename (str, optional): _description_. Defaults to "outlet correction.csv".
+
+    Returns:
+        float: Correction factor [-]
     """
     # 1. Load data from CSV
     df = pd.read_csv(input_filename)
@@ -330,7 +374,7 @@ def interpolate_k_outlet_correction(k_star: float, outlet_length: float, input_f
     len_vals = df['Outlet length'].values
     c_vals = df['C'].values
     
-    # 2. Natural log transformation with +1 offset and calculate k_star 
+    # 2. Natural log transformation with +1 offset
     ln_len_orig = np.log(len_vals + 1)
     ln_len_input = np.log(outlet_length + 1)
     
@@ -349,19 +393,54 @@ def calculate_scramble_coefficient(k1_star:float, k2_star:float, correction:floa
     """Calculates the scramble coefficient for a set of bends
 
     Args:
-        k1_star (float): first bend K value at Re 1E6
-        k2_star (float): second bend K value at Re 1E6
-        correction (float): correction for the bend combination given by DS Miller
-        seperation (float): number of diameters seperation (typically an int but can be any value)
-
+        k1_star (float): first bend K value at Re 1E6 [-]
+        k2_star (float): second bend K value at Re 1E6 [-]
+        correction (float): correction for the bend combination given by DS Miller [-]
+        seperation (float): seperation distance/D [-]
+        
     Returns:
-        float: scramble coefficient
+        float: scramble coefficient [-]
     """
     return (correction*(k1_star+k2_star) - k1_star*interpolate_k_outlet_correction(k1_star, seperation))/k2_star
 
 
-def find_scramble_k(k:float, re:float, curvature:float, inflow_length:float, outflow_length:float)->float:
-    """Finds the K using the scramble power laws and the outlet correction
+def get_scramble_coefficient(rd1:float, rd2:float, sep:float, angles=[0,30,60,90,120,150,180], re=50E3)->tuple[float,float,float]:
+    """ Calculates the average, minimum, and maximum scramble coefficients across a set of orientations.
+
+    Args:
+        rd1 (float): R/D for bend 1 [-]
+        rd2 (float): R/D for bend 2 [-]
+        sep (float): seperation/D [-]
+        angles (list, optional): relative orientations to test [deg]. Defaults to [0,30,60,90,120,150,180].
+        re (_type_, optional): Reynolds number [-]. Defaults to 50E3.
+
+    Returns:
+        tuple[float,float,float]: avergae, minimum, maximum scramble coefficients [-,-,-]
+    """
+    angle_scrambles = []
+    
+    # Pre-calculate constant values for this R/D and Reynolds number
+    k1_star = ito_k(rd1, re) / interpolate_re_correction(re)
+    k2_star = ito_k(rd2, re) / interpolate_re_correction(re)
+    
+    for angle in angles:
+        # Get correction factor for this specific orientation
+        cf = get_interpolated_correction_factor(rd1, rd2, sep, angle)
+        
+        # Calculate individual scramble
+        s = calculate_scramble_coefficient(k1_star, k2_star, cf, sep)
+        angle_scrambles.append(s)
+    
+    # Calculate statistics
+    avg_scramble = sum(angle_scrambles) / len(angle_scrambles)
+    min_scramble = min(angle_scrambles)
+    max_scramble = max(angle_scrambles)
+    
+    return avg_scramble, min_scramble, max_scramble
+
+
+def find_scramble_k(k:float, scramble_coefficient:float, re:float, curvature:float, outflow_length:float)->float:
+    """Finds the K using the scramble and the outlet correction
 
     Args:
         k (float): Pressure loss coefficent [-]
@@ -371,29 +450,20 @@ def find_scramble_k(k:float, re:float, curvature:float, inflow_length:float, out
         outflow_length (float): Outflow length/Diameter [-]
 
     Raises:
-        ValueError: If curvature does not have an associated power law
-        ValueError: If the inflow length is smaller than 4D
+        ValueError: If curvature is not in the data set
 
     Returns:
         float: k
     """
-    outlet_correction = interpolate_k_outlet_correction(k/interpolate_re_correction(re),outflow_length)
+    k_star = k/interpolate_re_correction(re)
+    outlet_correction = interpolate_k_outlet_correction(k_star,outflow_length)
     if  curvature not in [2,3]:
             raise ValueError(f"You must give a power law relationship for the curvature")
-    if inflow_length < 4:
-        raise ValueError(f"Outside of power law range")
     
-    if inflow_length > 30:
-        scramble_correction = 1
-    elif curvature == 2:
-        scramble_correction = 0.5987*inflow_length**0.1714
-    else:
-        scramble_correction = 0.914*inflow_length**0.0284
-    return k*outlet_correction*scramble_correction
+    return k*outlet_correction*scramble_coefficient
 
 
-    
-# Tests
+#Tests
 
 
 def run_sweep(v):
@@ -505,73 +575,81 @@ def run_loocv_validation():
         
     return np.mean(all_errors), np.max(all_errors), np.sum(all_errors > threshold) / len(all_errors)
 
-"""
-r_d = [2, 3]
-seperation = range(4, 20)
-angles = [0, 30, 60, 90, 120, 150, 180]
-re = 50E3
-plt.figure(figsize=(10, 6))
 
-for rd in r_d:
-    scramble_list = []
-    ln_sep_list = []
-    
-    for sep in seperation:
-        # --- Existing Logic ---
-        sum_val = 0
-        for angle in angles:
-            sum_val += get_interpolated_correction_factor(rd, rd, sep, angle)
+def power_law():
+    r_d = [(3,2), (2,3)]
+    seperation = range(4, 16)
+    angles = [0, 30, 60, 90, 120, 150, 180]
+    re = 50E3
+    plt.figure(figsize=(12, 7))
+
+    for rd1, rd2 in r_d:
+        scramble_avgs = []
+        ln_sep_list = []
+        lower_err = []
+        upper_err = []
         
-        correction = sum_val / len(angles)
-        scramble = calculate_scramble_coefficient(
-            ito_k(rd, re) / interpolate_re_correction(re), 
-            ito_k(rd, re) / interpolate_re_correction(re), 
-            correction, 
-            sep
-        )
-        # --- End Existing Logic ---
+        for sep in seperation:
+            angle_scrambles = []
+            for angle in angles:
+                cf = get_interpolated_correction_factor(rd1, rd2, sep, angle)
+                s = calculate_scramble_coefficient(
+                    ito_k(rd1, re) / interpolate_re_correction(re), 
+                    ito_k(rd2, re) / interpolate_re_correction(re), 
+                    cf, 
+                    sep
+                )
+                angle_scrambles.append(s)
+            
+            avg_s = np.mean(angle_scrambles)
+            scramble_avgs.append(avg_s)
+            ln_sep_list.append(np.log(sep))
+            
+            # Use max(0, ...) to prevent tiny negative floating point errors
+            lower_err.append(max(0, avg_s - min(angle_scrambles)))
+            upper_err.append(max(0, max(angle_scrambles) - avg_s))
+
+        # Reformat for matplotlib errorbar
+        yerr = [lower_err, upper_err]
+
+        # --- Power Law Fit ---
+        ln_scramble = np.log(scramble_avgs)
+        b, ln_a = np.polyfit(ln_sep_list, ln_scramble, 1)
+        a = np.exp(ln_a)
         
-        scramble_list.append(scramble)
-        ln_sep_list.append(np.log(sep))
+        print(f"R/D {rd1}, {rd2} | Power Law: Scramble = {a:.4f} * Separation^{b:.4f}")
 
-    # --- Power Law Fit ---
-    # Log the scramble values to linearize: ln(Y) = ln(a) + b*ln(S)
-    ln_scramble = np.log(scramble_list)
-    
-    # Perform linear regression on ln(S) and ln(Y)
-    # b (slope) is the exponent, intercept is ln(a)
-    b, ln_a = np.polyfit(ln_sep_list, ln_scramble, 1)
-    a = np.exp(ln_a)
-    
-    print(f"R/D {rd} Power Law: Scramble = {a:.4f} * Separation^{b:.4f}")
+        # Plot original data with error bars
+        line, caps, bars = plt.errorbar(ln_sep_list, scramble_avgs, yerr=yerr, fmt='o', 
+                                        capsize=4, label=f'Data R/D={rd1}, {rd2}', markersize=5)
+        
+        # Plot fit line using the same color as the error bar plot
+        fit_scramble = a * np.exp(ln_sep_list)**b
+        plt.plot(ln_sep_list, fit_scramble, '--', color=line.get_color(), 
+                 alpha=0.6, label=f'Fit (b={b:.2f})')
 
-    # Plotting the original data
-    plt.plot(ln_sep_list, scramble_list, 'o', label=f'Data R/D={rd}')
-    
-    # Plotting the fit line
-    fit_scramble = a * np.exp(ln_sep_list)**b
-    plt.plot(ln_sep_list, fit_scramble, '--', label=f'Fit R/D={rd} (b={b:.2f})')
+    plt.xlabel('ln(Separation)')
+    plt.ylabel('Scramble')
+    plt.title('Power Law Fit with Orientation Min/Max Spread')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, which="both", ls="-", alpha=0.3)
+    plt.tight_layout()
+    plt.show()
 
-plt.xlabel('ln(Separation)')
-plt.ylabel('Scramble')
-plt.title('Power Law Fit of Scramble vs. Separation')
-plt.legend()
-plt.grid(True)
-plt.show()
 
-"""
-for sep in [5, 8, 12]:
+for sep1, sep2 in [(1,1),(2,2), (3,3), (4,4)]:
     k1 = ito_k(3,50E3)
     k2 = ito_k(2,50E3)
+    bend_rd2 = Bend(2, 0, k2)
+    bend_rd3 = Bend(3, 0, k1)
     flow = Flow(5,998,1E-3,10E-3)
     inlet = PipeSection(5)
-    bend1 = Bend(3,0,k1)
-    connector1 = PipeSection(sep)
-    bend2 = bend1
-    connector2 = connector1
-    bend3 = bend1
+    bend1 = bend_rd2
+    connector1 = PipeSection(sep1)
+    bend2 = bend_rd2
+    connector2 = PipeSection(sep2)
+    bend3 = bend_rd2
     outlet = PipeSection(40)
     bends = [bend1, bend2, bend3]
     pipes = [inlet, connector1, connector2, outlet]
-    print(calculate_pressure_drop(bends, pipes, flow))
-    #print(calculate_niave_drop(bends, pipes, flow))
+    print(calculate_pressure_drop(bends, pipes, flow, orientation_dependent=True)[0])
