@@ -106,11 +106,107 @@ class Flow:
         self.speed = speed
         self.rho = rho
      
-     
+   
+class Solver:
+    supported_solvers = ["isolated", "orientationless", "oriented"]
+    def __init__(self, solver_type:str):
+        if solver_type.lower() not in self.supported_solvers:
+            raise ValueError(f"{solver_type} not in supported solvers: {self.supported_solvers}")
+        self.solver_type = solver_type.lower()  
+    
+    def _interacting_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow, orientation_dependent:bool=True)->tuple[float,float,float]:
+        """Calculates the pressure drop considering the level of shedding (scramble) from the previous inlet and the outlet correction only
+
+        Args:
+            bends (list[Bend]): Bends in pipe system
+            pipes (list[PipeSection]): Straight sections in the pipe system
+            flow (Flow): Flow in the pipe
+
+        Raises:
+            ValueError: Incorrect number of pipes or bends
+
+        Returns:
+            float: Total pressure drop [Pa]
+        """
+        # validity
+        if  len(pipes) - len(bends) != 1:
+                raise ValueError(f"You must have an inlet, outlet pipe and pipes between all elbows")
+        # pressure drop in the pipes
+        L_d = 0
+        for pipe in pipes:
+            L_d +=  pipe.length_d
+        avg_drop = blasius_darcy(L_d*flow.diameter, flow)
+        min_drop = avg_drop
+        max_drop = avg_drop
+        # pressure drop in the bends
+        bend = bends[0]
+        next_pipe = pipes[1]
+        K_avg=find_scramble_k(bend.k_value, 1, flow.reynolds, bend.r_d, next_pipe.length_d)
+        K_min = K_avg
+        K_max = K_avg
+        for i in range(1,len(bends)):
+            prev_bend = bends[i-1]
+            bend = bends[i]
+            prev_pipe = pipes[i]
+            next_pipe = pipes[i+1]
+            if orientation_dependent:
+                avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds, angles=[relative_orientation(prev_bend, bend)])
+            else:
+                avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds)
+            K_avg+=find_scramble_k(bend.k_value, avg_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
+            K_min+=find_scramble_k(bend.k_value, min_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
+            K_max+=find_scramble_k(bend.k_value, max_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
+        avg_drop += (0.5*flow.rho*flow.speed**2) * K_avg
+        min_drop += (0.5*flow.rho*flow.speed**2) * K_min
+        max_drop += (0.5*flow.rho*flow.speed**2) * K_max
+        return avg_drop,min_drop,max_drop
+
+
+    def _isolated_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow)->float:
+        # validity
+        if  len(pipes) - len(bends) != 1:
+                raise ValueError(f"You must have an inlet, outlet pipe and pipes between all elbows")
+        # pressure drop in the pipes
+        L_d = 0
+        for pipe in pipes:
+            L_d +=  pipe.length_d
+        drop = blasius_darcy(L_d*flow.diameter, flow)
+        # pressure drop in the bends
+        K = 0
+        for bend in bends:
+            K+=bend.k_value
+        drop += (0.5*flow.rho*flow.speed**2) * K
+        return drop
+    
+    
+    def get_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow)->tuple[float,float,float]:
+        if not self.solver_type:
+            raise RuntimeError(f"Solver not set")
+        if self.solver_type == "isolated":
+            pd = self._isolated_pressure_drop(bends, pipes, flow)
+            return pd,pd,pd
+        elif self.solver_type == "orientationless":
+            return self._interacting_pressure_drop(bends, pipes, flow, False)
+        elif self.solver_type == "oriented":
+            return self._interacting_pressure_drop(bends, pipes, flow, True)
+        else:
+            print("solver not found")
+            return -1
+
+
 #METHODS   
 
  
 def blasius_darcy(L:float, flow:Flow)->float:
+    """Calculates the pressure drop givent the Blasius relation for the Darcy friction factor
+
+    Args:
+        L (float): Length of pipe [m]
+        flow (Flow): Flow characteristic [-]
+
+    Returns:
+        float: Pressure drop [Pa]
+    """
     re = flow.reynolds
     f = 0.3164*(re**-0.25)
     return f*(L/flow.diameter)*(flow.rho*flow.speed**2)/2
@@ -121,24 +217,32 @@ def ito_k(curvature: int, re: float, theta:float=90)->float:
     Calculates the K value of an elbow using the Ito method.
     
     Parameters:
-    curvature: R/D
-    re    : Reynolds number (dimensionless)
-    theta : Bend angle (degrees)
+    curvature: R/D [-]
+    re    : Reynolds number [-]
+    theta : Bend angle [deg]
     
     Returns:
-    K     : Loss coefficient (dimensionless)
+    K     : Loss coefficient [-]
     """
     
     ratio = 2*curvature
     alpha = 0.95 + 17.2 * (ratio ** -1.96)
     
-    # Calculate K (Equation 9)
     # K = 0.00241 * alpha * theta * (2R / D)^0.84 * Re^-0.17
     K = 0.00241 * alpha * theta * (ratio ** 0.84) * (re ** -0.17)
     return K
 
 
-def relative_orientation(bend_1:Bend, bend_2:Bend)->int:
+def relative_orientation(bend_1:Bend, bend_2:Bend)->float:
+    """Calculates the relative orientation of 2 bends
+
+    Args:
+        bend_1 (Bend):
+        bend_2 (Bend): 
+
+    Returns:
+        float: relative orientation [deg]
+    """
     o_1 = bend_1.orientation
     o_2 = bend_2.orientation
     diff = abs(o_2 - o_1)
@@ -163,8 +267,6 @@ def get_bend_correction_factor(r_d_1: int, r_d_2: int, ls_d: int, theta_c: int) 
     if ls_d > 8:
         return 1
     # Create the tuple key for the bend combination (ensure alphabetical order for lookup)
-    # The table is structured such that (r/d = X) + spacer + (r/d = Y) is a distinct block.
-    # Therefore, we treat the combination as-entered by the user.
     bend_key = (str(r_d_1), str(r_d_2))
 
     try:
@@ -188,72 +290,6 @@ def get_bend_correction_factor(r_d_1: int, r_d_2: int, ls_d: int, theta_c: int) 
     except KeyError as e:
         print(f"Error: Parameter combination not found in table. {e}")
         return None
-
-
-def calculate_pressure_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow, orientation_dependent:bool=True)->tuple[float,float,float]:
-    """Calculates the pressure drop considering the level of shedding (scramble) from the previous inlet and the outlet correction only
-
-    Args:
-        bends (list[Bend]): Bends in pipe system
-        pipes (list[PipeSection]): Straight sections in the pipe system
-        flow (Flow): Flow in the pipe
-
-    Raises:
-        ValueError: Incorrect number of pipes or bends
-
-    Returns:
-        float: Total pressure drop [Pa]
-    """
-    # validity
-    if  len(pipes) - len(bends) != 1:
-            raise ValueError(f"You must have an inlet, outlet pipe and pipes between all elbows")
-    # pressure drop in the pipes
-    L_d = 0
-    for pipe in pipes:
-        L_d +=  pipe.length_d
-    avg_drop = blasius_darcy(L_d*flow.diameter, flow)
-    min_drop = avg_drop
-    max_drop = avg_drop
-    # pressure drop in the bends
-    bend = bends[0]
-    next_pipe = pipes[1]
-    K_avg=find_scramble_k(bend.k_value, 1, flow.reynolds, bend.r_d, next_pipe.length_d)
-    K_min = K_avg
-    K_max = K_avg
-    for i in range(1,len(bends)):
-        prev_bend = bends[i-1]
-        bend = bends[i]
-        prev_pipe = pipes[i]
-        next_pipe = pipes[i+1]
-        if orientation_dependent:
-            avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds, angles=[relative_orientation(prev_bend, bend)])
-        else:
-            avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds)
-        K_avg+=find_scramble_k(bend.k_value, avg_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
-        K_min+=find_scramble_k(bend.k_value, min_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
-        K_max+=find_scramble_k(bend.k_value, max_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
-    avg_drop += (0.5*flow.rho*flow.speed**2) * K_avg
-    min_drop += (0.5*flow.rho*flow.speed**2) * K_min
-    max_drop += (0.5*flow.rho*flow.speed**2) * K_max
-    
-    return avg_drop,min_drop,max_drop
-
-
-def calculate_niave_drop(bends:list[Bend], pipes:list[PipeSection], flow:Flow)->float:
-    # validity
-    if  len(pipes) - len(bends) != 1:
-            raise ValueError(f"You must have an inlet, outlet pipe and pipes between all elbows")
-    # pressure drop in the pipes
-    L_d = 0
-    for pipe in pipes:
-        L_d +=  pipe.length_d
-    drop = blasius_darcy(L_d*flow.diameter, flow)
-    # pressure drop in the bends
-    K = 0
-    for bend in bends:
-        K+=bend.k_value
-    drop += (0.5*flow.rho*flow.speed**2) * K
-    return drop
 
 
 def calculate_k(loss:float, L:float, flow:Flow)->float:
@@ -652,4 +688,7 @@ for sep1, sep2 in [(1,1),(2,2), (3,3), (4,4)]:
     outlet = PipeSection(40)
     bends = [bend1, bend2, bend3]
     pipes = [inlet, connector1, connector2, outlet]
-    print(calculate_pressure_drop(bends, pipes, flow, orientation_dependent=True)[0])
+    solver = Solver("isolated")
+    solver2 = Solver("orientationless")
+    print(solver.get_pressure_drop(bends, pipes, flow,))
+    print(solver2.get_pressure_drop(bends, pipes, flow,))
