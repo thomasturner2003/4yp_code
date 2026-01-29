@@ -517,25 +517,3 @@ def find_scramble_k(k:float, scramble_coefficient:float, re:float, curvature:flo
     return k*outlet_correction*scramble_coefficient
 
 
-
-
-for sep1, sep2 in [(1,1),(2,2), (3,3), (4,4)]:
-    ito = Ito()
-    k1 = ito.get_k(3,50E3)
-    k2 = ito.get_k(2,50E3)
-    bend_rd2 = Bend(2, 0, k2)
-    bend_rd3 = Bend(3, 0, k1)
-    flow = Flow(5,998,1E-3,10E-3)
-    inlet = PipeSection(5)
-    bend1 = bend_rd2
-    connector1 = PipeSection(sep1)
-    bend2 = bend_rd2
-    connector2 = PipeSection(sep2)
-    bend3 = bend_rd2
-    outlet = PipeSection(40)
-    bends = [bend1, bend2, bend3]
-    pipes = [inlet, connector1, connector2, outlet]
-    solver = Solver("isolated")
-    solver2 = Solver("orientationless")
-    print(solver.get_pressure_drop(bends, pipes, flow,))
-    print(solver2.get_pressure_drop(bends, pipes, flow,))
