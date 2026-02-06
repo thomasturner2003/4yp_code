@@ -5,9 +5,6 @@ import os
 import json
 
 
-# CLASSES
-
-
 class PipeSection:
     """
     Length is in diameters
@@ -17,7 +14,7 @@ class PipeSection:
 
 
 class Bend:
-    def __init__(self, r_d: int, orientation: float):
+    def __init__(self, r_d: int, orientation: float, diameter_ratio:float=1):
         """
         :param r_d: The relative radius of the bend (r/d). Must be 1, 2, or 3.
         :param orientation: The orientation of the bend in the global coordinate system (degrees).
@@ -25,6 +22,7 @@ class Bend:
         """
         self.r_d = r_d                  # Discrete bend radius (r/d, matching table values)
         self.orientation = orientation  # Orientation to the global system (degrees)
+        self.diameter_ratio = diameter_ratio
     
     
 class Flow:
@@ -73,7 +71,7 @@ class Data:
             return self._ito_k(rd, self.flow.reynolds)
         elif self.source == "turner":
             # ito has better K values than Turner data due to error amplification
-            return self._ito_k(rd, self.flow.reynolds)
+            return self._turner_elbow_k(rd, self.flow.reynolds,diameter_ratio)
         else:
             raise RuntimeError("Source not supported for get_elbow_k")
             
@@ -378,7 +376,7 @@ class Solver:
         self.blasius_source = Data("blasius", flow)
         self.flow = flow
     
-    def _interacting_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow, diameter_ratio=1):
+    def _interacting_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow):
         """Calculates the pressure drop considering the level of shedding (scramble) from the previous inlet and the outlet correction only
 
         Args:
@@ -403,17 +401,17 @@ class Solver:
         # pressure drop in the bends
         bend = bends[0]
         next_pipe = pipes[1]
-        K=self.data_source.get_first_k(bend, next_pipe,diameter_ratio)
+        K=self.data_source.get_first_k(bend, next_pipe,bend.diameter_ratio)
         for i in range(1,len(bends)):
             prev_bend = bends[i-1]
             bend = bends[i]
             prev_pipe = pipes[i]
             next_pipe = pipes[i+1]
-            K+=self.data_source.get_scrambled_k(prev_bend, bend, prev_pipe, next_pipe, diameter_ratio, angles=[self.relative_orientation(prev_bend, bend)])
+            K+=self.data_source.get_scrambled_k(prev_bend, bend, prev_pipe, next_pipe, bend.diameter_ratio, angles=[self.relative_orientation(prev_bend, bend)])
         drop += (0.5*flow.rho*flow.speed**2) * K
         return drop
 
-    def _isolated_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow, diameter_ratio=1)->float:
+    def _isolated_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow)->float:
         """Calculates the pressure drop assuming all bends are in isolation
 
         Args:
@@ -438,18 +436,18 @@ class Solver:
         # pressure drop in the bends
         K = 0
         for bend in bends:
-            K+=self.data_source.get_elbow_k(bend.r_d,diameter_ratio)
+            K+=self.data_source.get_elbow_k(bend.r_d,bend.diameter_ratio)
         drop += (0.5*flow.rho*flow.speed**2) * K
         return drop
     
-    def get_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], diameter_ratio)->float:
+    def get_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection])->float:
         if not self.solver_type:
             raise RuntimeError(f"Solver not set")
         if self.solver_type == "isolated":
-            pd = self._isolated_pressure_drop(bends, pipes, self.flow, diameter_ratio)
+            pd = self._isolated_pressure_drop(bends, pipes, self.flow)
             return pd
         elif self.solver_type == "oriented":
-            return self._interacting_pressure_drop(bends, pipes, self.flow, diameter_ratio)
+            return self._interacting_pressure_drop(bends, pipes, self.flow)
         else:
             print("solver not found")
             return -1
@@ -469,42 +467,19 @@ class Solver:
         diff = abs(o_2 - o_1)
         diff = min(diff, 360-diff)
         return diff
-  
-#METHODS   
-
-
-
-def calculate_k(loss:float, L:float, flow:Flow)->float:
-    """ Calculates the value of K given the loss
-
-    Args:
-        loss (float): Pressure drop [Pa]
-        L (float): Pipe length [m]
-        flow (Flow): Characteristic flow [-]
-
-    Returns:
-        float: K [-]
-    """
-    loss -= blasius_darcy(L, flow)
-    return loss/(0.5*flow.rho*flow.speed**2)
 
 
 if __name__ == "__main__":
     flow = Flow(5,998,1E-3,10E-3)    
-
-
     inlet = PipeSection(5)
     connector_1 = PipeSection(2)
     connector_2 = PipeSection(5)
-    bend_1 = Bend(3,0)
-    bend_2 = Bend(3,0)
-    bend_3 = Bend(3,0)
+    contraction = 1.1
+    bend_1 = Bend(3,0,contraction)
+    bend_2 = Bend(3,0,contraction)
+    bend_3 = Bend(3,0,contraction)
     outlet = PipeSection(40)
     pipes = [inlet, connector_1, connector_2, outlet]
     bends = [bend_1, bend_2, bend_3]
     solver = Solver("oriented", "turner", flow)
-    print(solver.get_pressure_drop(bends,pipes,1))
-    solver = Solver("oriented", "miller", flow)
-    print(solver.get_pressure_drop(bends,pipes,1))
-    solver = Solver("isolated", "miller", flow)
-    print(solver.get_pressure_drop(bends,pipes,1))
+    print(solver.get_pressure_drop(bends,pipes))
