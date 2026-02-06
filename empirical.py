@@ -76,7 +76,6 @@ def pressure_drop_darcy(rho, V, D, L, mu, eps=1.5e-5, K_minor=0.0, use_colebrook
 def predicted_K(rho, V, dp):
     return (dp)/(0.5*rho*V*V)
 
-def run_case(case_ID):
     try:
         case = data.read_case(case_ID)
         fluid = data.read_fluid(case['Working fluid'])

@@ -188,24 +188,5 @@ def calculate_y_plus(y, v_bulk, D, rho, mu):
     return y_plus
 
 
-def boundary_layer_thickness(x, D, v_bulk, rho, mu):
-    """
-    Approximates the 99% boundary layer thickness for 1e4 < Re < 5e5.
-    Uses the 1/7th power law and caps the result at the pipe radius.
-    """
-    # 1. Local Reynolds Number
-    re_x = (rho * v_bulk * x) / mu
-    
-    # 2. 99% Boundary Layer Thickness (delta)
-    # Standard turbulent approximation for moderate Re
-    delta_99 = (0.16 * x) * (re_x ** (-1/7))
-    
-    # 3. Apply Pipe Constraint (Fully Developed Cap)
-    #radius = D / 2.0
-    #if delta_99 > radius:
-    #    return radius
-        
-    return delta_99
-
 print(2*first_layer_height(3, 0.01, 998, 1E-3, 1))
 print(calculate_inflation_total_height(0.3E-3, 3, 7.8E-6, 25)*1000)

@@ -27,9 +27,10 @@ def sample_transformed_log(n_samples:int, min_val:float=2, max_val:float=30)->li
     return d_values
 
 
-print(sample_list([2,3], 5))
-"""
-samples = sample_transformed_log(5)
+
+samples = sample_list([(0.01,90),(0.01,270), (180,90), (180, 270)], 20)
+samples = sample_list([20,30], 20)
+#samples = sample_transformed_log(10, 2, 30)
 for sample in samples:
     print(sample)
-"""
+

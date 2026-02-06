@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
 from scipy.interpolate import griddata
-# GLOBAL
-
+import os
+import json
 
 
 # CLASSES
@@ -12,9 +12,8 @@ class PipeSection:
     """
     Length is in diameters
     """
-
     def __init__(self, length_d: float):
-        self.length_d = length_d  # Ls/d: length in pipe diameters
+        self.length_d = length_d
 
 
 class Bend:
@@ -91,7 +90,6 @@ class Solver:
         max_drop += (0.5*flow.rho*flow.speed**2) * K_max
         return avg_drop,min_drop,max_drop
 
-
     def _isolated_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow)->float:
         """Calculates the pressure drop assuming all bends are in isolation
 
@@ -121,7 +119,6 @@ class Solver:
         drop += (0.5*flow.rho*flow.speed**2) * K
         return drop
     
-    
     def get_pressure_drop(self, bends:list[Bend], pipes:list[PipeSection], flow:Flow)->tuple[float,float,float]:
         if not self.solver_type:
             raise RuntimeError(f"Solver not set")
@@ -137,235 +134,23 @@ class Solver:
             return -1
 
 
-class Miller:
-    correction_factors = {
-    # (r/d = 1) + spacer + (r/d = 1)
-    ('1', '1'): {
-        0:   {0: 1.00, 30: 1.16, 60: 1.04, 90: 0.81, 120: 0.69, 150: 0.60, 180: 0.53},
-        1:   {0: 0.86, 30: 1.04, 60: 0.93, 90: 0.79, 120: 0.69, 150: 0.63, 180: 0.58},
-        4:   {0: 0.71, 30: 0.94, 60: 0.76, 90: 0.74, 120: 0.72, 150: 0.73, 180: 0.71},
-        8:   {0: 0.81, 30: 0.83, 60: 0.82, 90: 0.82, 120: 0.81, 150: 0.91, 180: 0.80}
-    },
-    # (r/d = 1) + spacer + (r/d = 2)
-    ('1', '2'): {
-        0:   {0: 1.06, 30: 1.15, 60: 1.01, 90: 0.81, 120: 0.71, 150: 0.64, 180: 0.60},
-        1:   {0: 0.91, 30: 1.05, 60: 0.96, 90: 0.86, 120: 0.78, 150: 0.71, 180: 0.64},
-        4:   {0: 0.74, 30: 0.85, 60: 0.82, 90: 0.80, 120: 0.79, 150: 0.78, 180: 0.77},
-        8:   {0: 0.83, 30: 0.84, 60: 0.84, 90: 0.82, 120: 0.81, 150: 0.81, 180: 0.81}
-    },
-    # (r/d = 1) + spacer + (r/d = 3)
-    ('1', '3'): {
-        0:   {0: 1.02, 30: 1.06, 60: 0.97, 90: 0.86, 120: 0.78, 150: 0.72, 180: 0.67},
-        1:   {0: 0.93, 30: 1.05, 60: 0.92, 90: 0.90, 120: 0.82, 150: 0.78, 180: 0.72},
-        4:   {0: 0.78, 30: 0.83, 60: 0.83, 90: 0.82, 120: 0.82, 150: 0.81, 180: 0.81},
-        8:   {0: 0.87, 30: 0.83, 60: 0.83, 90: 0.83, 120: 0.83, 150: 0.84, 180: 0.85}
-    },
-    # (r/d = 2) + spacer + (r/d = 1)
-    ('2', '1'): {
-        0:   {0: 0.76, 30: 0.73, 60: 0.71, 90: 0.67, 120: 0.64, 150: 0.60, 180: 0.57},
-        1:   {0: 0.74, 30: 0.72, 60: 0.70, 90: 0.68, 120: 0.66, 150: 0.64, 180: 0.62},
-        4:   {0: 0.69, 30: 0.73, 60: 0.74, 90: 0.74, 120: 0.75, 150: 0.75, 180: 0.75},
-        8:   {0: 0.74, 30: 0.79, 60: 0.80, 90: 0.80, 120: 0.81, 150: 0.81, 180: 0.81}
-    },
-    # (r/d = 2) + spacer + (r/d = 2)
-    ('2', '2'): {
-        0:   {0: 0.86, 30: 0.79, 60: 0.77, 90: 0.73, 120: 0.68, 150: 0.63, 180: 0.58},
-        1:   {0: 0.83, 30: 0.79, 60: 0.74, 90: 0.71, 120: 0.68, 150: 0.65, 180: 0.62},
-        4:   {0: 0.72, 30: 0.71, 60: 0.70, 90: 0.70, 120: 0.69, 150: 0.69, 180: 0.72},
-        8:   {0: 0.77, 30: 0.81, 60: 0.81, 90: 0.80, 120: 0.80, 150: 0.80, 180: 0.80}
-    },
-    # (r/d = 2) + spacer + (r/d = 3)
-    ('2', '3'): {
-        0:   {0: 0.88, 30: 0.84, 60: 0.81, 90: 0.78, 120: 0.76, 150: 0.72, 180: 0.69},
-        1:   {0: 0.85, 30: 0.83, 60: 0.81, 90: 0.79, 120: 0.77, 150: 0.75, 180: 0.73},
-        4:   {0: 0.74, 30: 0.77, 60: 0.79, 90: 0.81, 120: 0.82, 150: 0.82, 180: 0.83},
-        8:   {0: 0.83, 30: 0.82, 60: 0.83, 90: 0.84, 120: 0.85, 150: 0.86, 180: 0.87}
-    },
-    # (r/d = 3) + spacer + (r/d = 1)
-    ('3', '1'): {
-        0:   {0: 0.79, 30: 0.76, 60: 0.73, 90: 0.70, 120: 0.68, 150: 0.65, 180: 0.64},
-        1:   {0: 0.76, 30: 0.75, 60: 0.73, 90: 0.72, 120: 0.70, 150: 0.69, 180: 0.68},
-        4:   {0: 0.70, 30: 0.73, 60: 0.75, 90: 0.77, 120: 0.78, 150: 0.78, 180: 0.79},
-        8:   {0: 0.76, 30: 0.81, 60: 0.81, 90: 0.81, 120: 0.82, 150: 0.82, 180: 0.82}
-    },
-    # (r/d = 3) + spacer + (r/d = 2)
-    ('3', '2'): {
-        0:   {0: 0.85, 30: 0.83, 60: 0.80, 90: 0.76, 120: 0.73, 150: 0.69, 180: 0.65},
-        1:   {0: 0.83, 30: 0.81, 60: 0.79, 90: 0.76, 120: 0.74, 150: 0.71, 180: 0.68},
-        4:   {0: 0.72, 30: 0.74, 60: 0.75, 90: 0.76, 120: 0.77, 150: 0.77, 180: 0.77},
-        8:   {0: 0.77, 30: 0.81, 60: 0.80, 90: 0.80, 120: 0.80, 150: 0.80, 180: 0.80}
-    },
-    # (r/d = 3) + spacer + (r/d = 3)
-    ('3', '3'): {
-        0:   {0: 0.86, 30: 0.83, 60: 0.81, 90: 0.78, 120: 0.76, 150: 0.74, 180: 0.71},
-        1:   {0: 0.87, 30: 0.85, 60: 0.83, 90: 0.79, 120: 0.77, 150: 0.75, 180: 0.73},
-        4:   {0: 0.82, 30: 0.81, 60: 0.81, 90: 0.80, 120: 0.80, 150: 0.79, 180: 0.79},
-        8:   {0: 0.85, 30: 0.85, 60: 0.85, 90: 0.85, 120: 0.85, 150: 0.85, 180: 0.85}
-    }
-}
-    def __innit__(self):
-        pass
-    def get_bend_correction_factor(self, r_d_1: int, r_d_2: int, ls_d: int, theta_c: int) -> float:
-        """
-        Retrieves the interaction correction factor (C) for combinations of two 90° bends.
-
-        Parameters:
-        - r_d_1 (int): The relative radius (r/d) of the first 90° bend (1, 2, or 3).
-        - r_d_2 (int): The relative radius (r/d) of the second 90° bend (1, 2, or 3).
-        - ls_d (int): The spacer length ratio (Ls/d) between the bends (0, 1, 4, or 8).
-        - theta_c (int): The combination angle (theta_c) in degrees (0, 30, 60, 90, 120, 150, or 180).
-
-        Returns:
-        - float: The interaction correction factor (C) from Table 10.1.
-        - None: If the combination of parameters is not found in the table.
-        """
-        if ls_d > 8:
-            return 1
-        # Create the tuple key for the bend combination (ensure alphabetical order for lookup)
-        bend_key = (str(r_d_1), str(r_d_2))
-
-        try:
-            # Step 1: Lookup the outer dictionary (r/d combination)
-            spacer_data = self.correction_factors.get(bend_key)
-            if not spacer_data:
-                raise KeyError(f"r/d combination {r_d_1, r_d_2} not found.")
-
-            # Step 2: Lookup the second level dictionary (Ls/d)
-            theta_data = spacer_data.get(ls_d)
-            if theta_data is None:
-                raise KeyError(f"Ls/d value {ls_d} not found for combination {r_d_1, r_d_2}.")
-
-            # Step 3: Lookup the final dictionary (theta_c)
-            factor = theta_data.get(theta_c)
-            if factor is None:
-                raise KeyError(f"Theta_c value {theta_c} not found for combination {r_d_1, r_d_2} and Ls/d={ls_d}.")
-
-            return factor
-
-        except KeyError as e:
-            print(f"Error: Parameter combination not found in table. {e}")
-            return None
-
-    def get_interpolated_correction_factor(self,r1, r2, separation, angle) -> float:
-        """Finds the correction factor for an interpolated set of bends
-
-        Args:
-            r1 (_type_): R/D of bend 1 [-]
-            r2 (_type_): R/D of bend 2 [-]
-            separation (_type_): Seperation length/D [-]
-            angle (_type_): Relative orientation [deg]
-
-        Raises:
-            ValueError: Does not interpolate between different curvatures will raise an error if data is not included
-            
-        Returns:
-            float: Correction factor [-]
-        """
-        # Condition: If separation is 30 or greater, correction is exactly 1.0, this follows assumption from Miller
-        if separation >= 30:
-            return 1.0
-        
-        radii_key = (str(r1), str(r2))
-        if radii_key not in self.correction_factors:
-            raise ValueError(f"Radii pair {radii_key} not found.")
-        
-        data_map = self.correction_factors[radii_key]
-        
-        # Transform existing grid into log-space
-        points = []
-        values = []
-        for sep, angles_dict in data_map.items():
-            log_sep = np.log(1+sep)
-            for ang, factor in angles_dict.items():
-                points.append((log_sep, ang))
-                values.append(factor)
-                
-        # Add the "Convergence Point" at sep=30 to the interpolation data and at sep=20 
-        for ang in [0, 30, 60, 90, 120, 150, 180]:
-            points.append((np.log(1+30), ang))
-            values.append(1.0)
-            points.append((np.log(1+20), ang))
-            values.append(0.97)
-                
-        points = np.array(points)
-        values = np.array(values)
-        
-        # Interpolate target in log-space
-        target_point = np.array([[np.log1p(separation), angle]])
-        result = griddata(points, values, target_point, method='linear')[0]
-        
-        # Fallback to nearest if on the very edge
-        if np.isnan(result):
-            result = griddata(points, values, target_point, method='nearest')[0]
-            
-        return float(result)
+class Data:
+    supported_sources = ["turner", "miller", "ito"]
+    supported_curvatures = [2,3]
     
-    def interpolate_re_correction(self, re: float, input_filename="reynolds correction.csv") -> float:
-        """Interpolates the correction factor for the given reynolds from data from DS Miller
-
-        Args:
-            re (float): Reynolds number [-]
-            input_filename (str, optional): _description_. Defaults to "reynolds correction.csv".
-
-        Returns:
-            float: Correction factor [-]
-        """
-        # 1. Load data from CSV
-        df = pd.read_csv(input_filename)
-        re_original = df['Re'].values
-        c_original = df['C'].values
+    def __init__(self, source:str, flow:Flow):
+        if source.lower() not in self.supported_sources:
+            raise RuntimeError(f"No data for {source} in supported sources: {self.supported_sources}")
+        self.source = source
+        self.flow = flow
         
-        # 2. Transform original Re and input Re to log-space
-        log_re_orig = np.log10(re_original)
-        log_re_input = np.log10(re)
-        
-        # 3. Interpolate C based on log10(Re)
-        # points: (N, 1) array of known log(Re) coordinates
-        # xi: (1, 1) array of the target log(Re) coordinate
-        points = log_re_orig.reshape(-1, 1)
-        xi = np.array([[log_re_input]])
-        
-        # griddata returns an array, so we take the first element [0]
-        c_value = griddata(points, c_original, xi, method='linear')[0][0]
-        
-        return float(c_value)
-
-    def interpolate_k_outlet_correction(self, k_star: float, outlet_length: float, input_filename="outlet correction.csv") -> float:
-        """Calculates the correction factor due to shortened outlet using data from DS Miller
-
-        Args:
-            k_star (float): K value at Reynolds = 1E6 [-]
-            outlet_length (float): length/D [-]
-            input_filename (str, optional): _description_. Defaults to "outlet correction.csv".
-
-        Returns:
-            float: Correction factor [-]
-        """
-        # 1. Load data from CSV
-        df = pd.read_csv(input_filename)
-        k_vals = df['K_star'].values
-        len_vals = df['Outlet length'].values
-        c_vals = df['C'].values
-        
-        # 2. Natural log transformation with +1 offset
-        ln_len_orig = np.log(len_vals + 1)
-        ln_len_input = np.log(outlet_length + 1)
-        
-        # 3. Define the coordinate space (K*, ln(L+1))
-        points = np.column_stack((k_vals, ln_len_orig))
-        xi = np.array([[k_star, ln_len_input]])
-        
-        # 4. Perform Bilinear (Linear 2D) Interpolation
-        # Returns the interpolated C factor for the given (k_star, outlet_length)
-        c_value = griddata(points, c_vals, xi, method='linear')[0]
-        
-        return float(c_value)
-
-
-class Ito:
-    def __init__(self):
-        pass
-    def get_k(self, curvature: int, re: float, theta:float=90)->float:
+    # Finding K for elbow
+    def get_elbow_k(self, rd:int)->float:
+        if self.source != "ito":
+            raise RuntimeWarning(f"Data source for elbow K should be Ito")
+        return self._ito_k(self, rd, self.flow.reynolds)
+    
+    def _ito_k(self, rd: int, re: float, theta:float=90)->float:
         """
         Calculates the K value of an elbow using the Ito method.
         
@@ -378,12 +163,203 @@ class Ito:
         K     : Loss coefficient [-]
         """
         
-        ratio = 2*curvature
+        ratio = 2*rd
         alpha = 0.95 + 17.2 * (ratio ** -1.96)
         
         # K = 0.00241 * alpha * theta * (2R / D)^0.84 * Re^-0.17
         K = 0.00241 * alpha * theta * (ratio ** 0.84) * (re ** -0.17)
         return K
+
+    # Finding correction factors for elbows
+    def get_elbow_correction_factor(self, rd1:int, rd2:int, seperation:float, twist:float)->float:
+        """
+        Retrieves the interaction correction factor (C) for combinations of two 90° bends.
+
+        Parameters:
+        - rd1 (int): The relative radius (r/d) of the first 90° bend.
+        - rd2 (int): The relative radius (r/d) of the second 90° bend.
+        - seperation (float): The spacer length ratio (Ls/d) between the bends (0, 1, 4, or 8).
+        - twist (float)): The twist angle (theta_c) in degrees (0, 30, 60, 90, 120, 150, or 180).
+
+        Returns:
+        - float: The interaction correction factor
+        """
+        if self.source != "miller":
+            raise RuntimeWarning("Data source for elbow correction factor should be Miller")
+        if rd1 not in self.supported_curvatures or rd2 not in self.supported_curvatures:
+            raise ValueError(f"Curvature not in supported curvatures {self.supported_curvatures}")
+        return self._miller_interpolated_elbow_correction(rd1,rd2,seperation,twist)
+
+    def _miller_interpolated_elbow_correction(self, rd1: int, rd2: int, seperation: float, twist: float, json_path="Data Sources/miller_elbow_correction_factors.json") -> float:
+        
+        # Condition: If separation is 30 or greater, correction is exactly 1.0
+        if seperation >= 30:
+            return 1.0
+        
+        # 1. Load the data directly from JSON
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(f"Could not find {json_path}")
+
+        with open(json_path, 'r') as f:
+            full_data = json.load(f)
+            # Assuming the JSON root is {"correction_factors": {...}}
+            correction_factors = full_data.get("correction_factors", {})
+
+        # 2. Match the JSON key format "r1-r2"
+        radii_key = f"{int(rd1)}-{int(rd2)}"
+        
+        if radii_key not in correction_factors:
+            raise ValueError(f"Radii pair {radii_key} not found in {json_path}.")
+        
+        data_map = correction_factors[radii_key]
+        
+        # 3. Transform existing grid into log-space
+        points = []
+        values = []
+        
+        for sep_str, angles_dict in data_map.items():
+            # JSON keys are strings, cast back to float for log math
+            log_sep = np.log1p(float(sep_str)) 
+            
+            for ang_str, factor in angles_dict.items():
+                points.append((log_sep, float(ang_str)))
+                values.append(factor)
+                    
+        # 4. Add Convergence Points (Miller assumptions)
+        # Adding points at sep=30 (factor 1.0) and sep=20 (factor 0.97)
+        for ang in [0, 30, 60, 90, 120, 150, 180]:
+            points.append((np.log1p(30), float(ang)))
+            values.append(1.0)
+            points.append((np.log1p(20), float(ang)))
+            values.append(0.97)
+                    
+        points = np.array(points)
+        values = np.array(values)
+        
+        # 5. Interpolate target in log-space
+        target_point = np.array([[np.log1p(seperation), twist]])
+        
+        # Linear interpolation
+        result = griddata(points, values, target_point, method='linear')[0]
+        
+        # Fallback to nearest if on the very edge (NaN protection)
+        if np.isnan(result):
+            result = griddata(points, values, target_point, method='nearest')[0]
+            
+        return float(result)
+    
+    # Correcting for Reynold's correction
+    def get_reynolds_correction_factor(self)->float:
+        if self.source != "miller":
+            raise RuntimeWarning("Data source for Reynolds correction should be Miller")
+        return self._miller_interpolated_elbow_correction(flow.reynolds)
+    
+    def _miller_interpolated_reynolds_correction(self,re:float,json_path="Data Sources/miller_reynolds_correction.json")->float:
+        # 1. Load data from JSON
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(f"Could not find {json_path}")
+
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+
+        # 2. Extract Re and C values from the list of objects format
+        # Using the "List of Objects" format provided in the previous step
+        re_original = np.array([item["Re"] for item in data])
+        c_original = np.array([item["C"] for item in data])
+        
+        # 3. Handle out-of-bounds cases (Optional but recommended)
+        if re <= re_original.min():
+            return float(c_original[0])
+        if re >= re_original.max():
+            return float(c_original[-1])
+
+        # 4. Transform original Re and input Re to log-space
+        log_re_orig = np.log10(re_original)
+        log_re_input = np.log10(re)
+        
+        # 5. Interpolate C based on log10(Re)
+        points = log_re_orig.reshape(-1, 1)
+        xi = np.array([[log_re_input]])
+        
+        # griddata returns an array; we extract the scalar value
+        c_value = griddata(points, c_original, xi, method='linear')[0]
+        
+        # Fallback to nearest if linear fails on the boundary
+        if np.isnan(c_value):
+            c_value = griddata(points, c_original, xi, method='nearest')[0]
+        
+        return float(c_value)
+    
+    # Correcting for shortened outlet
+    def get_outlet_correction_factor(self, rd:int, outlet_length:float, area_ratio:float=1)->float:
+        if rd not in self.supported_curvatures:
+            raise ValueError("Curvature not supported")
+        
+        if self.source == "miller":
+            if area_ratio != 1:
+                raise ValueError("Miller data for outlet correction only supports area ratio of 1")
+            return self._miller_outlet_correction_factor(rd, outlet_length)
+        elif self.source == "turner":
+            return 0
+        else:
+            raise RuntimeWarning("Data source for outlet correction factor should be Miller or Turner")
+        
+    def _turner_outlet_correction_factor(self, rd:int, area_ratio:float, outlet_length:float)->float:
+        pass
+    
+    def _miller_outlet_correction_factor(self, rd:int, outlet_length:float, input_filename="miller_outlet_correction.csv"):
+        # 0. Find the k_star
+        k_star = self._ito_k(rd, self.flow.reynolds)/self._miller_interpolated_reynolds_correction(self.flow.reynolds)
+        
+        # 1. Load data
+        df = pd.read_csv(input_filename)
+        k_vals = df['K_star'].values
+        len_vals = df['Outlet length'].values
+        c_vals = df['C'].values
+        
+        # 2. Natural log transformation with +1 offset
+        ln_len_orig = np.log1p(len_vals) 
+        ln_len_input = np.log1p(outlet_length)
+        
+        # 3. Define the coordinate space (K*, ln(L+1))
+        points = np.column_stack((k_vals, ln_len_orig))
+        xi = np.array([[k_star, ln_len_input]])
+        
+        # 4. Interpolate
+        c_value = griddata(points, c_vals, xi, method='linear')[0]
+        if np.isnan(c_value):
+            c_value = griddata(points, c_vals, xi, method='nearest')[0]
+            
+        return float(c_value)
+        
+    
+class Turner:
+    def __innit__(self):
+        pass
+    def get_outlet_correction(self, outlet_length:float, input_filename="elbow_outlet_correction_rd2.csv")->float:
+        """Calculates the correction factor due to shortened outlet using data from CFD data
+
+        Args:
+            rd: Bend radius/D [-]
+            outlet_length (float): length/D [-]
+            input_filename (str, optional):
+
+        Returns:
+            float: Correction factor [-]
+        """
+        df = pd.read_csv(input_filename)
+        d_vals = df['outlet_length'].values
+        c_vals = df['c_values'].values
+        # 2. Natural log transformation with +1 offset
+        ln_d_vals = np.log(d_vals + 1)
+        ln_d_outlet = np.log(outlet_length + 1)
+        
+        
+        # Returns the interpolated C factor for the given outlet length
+        c_value = griddata(ln_d_vals, c_vals, ln_d_outlet, method='linear')
+
+        
+        return float(c_value)
 
 
 #METHODS   
@@ -436,6 +412,8 @@ def calculate_k(loss:float, L:float, flow:Flow)->float:
     return loss/(0.5*flow.rho*flow.speed**2)
 
 
+# Uncluster this mess so I can choose to use Miller or turner methods, 
+
 def calculate_scramble_coefficient(k1_star:float, k2_star:float, correction:float, seperation:float)->float:
     """Calculates the scramble coefficient for a set of bends
 
@@ -448,7 +426,6 @@ def calculate_scramble_coefficient(k1_star:float, k2_star:float, correction:floa
     Returns:
         float: scramble coefficient [-]
     """
-    miller = Miller()
     return (correction*(k1_star+k2_star) - k1_star*miller.interpolate_k_outlet_correction(k1_star, seperation))/k2_star
 
 
@@ -466,8 +443,6 @@ def get_scramble_coefficient(rd1:float, rd2:float, sep:float, angles=[0,30,60,90
         tuple[float,float,float]: avergae, minimum, maximum scramble coefficients [-,-,-]
     """
     angle_scrambles = []
-    miller = Miller()
-    ito = Ito()
     # Pre-calculate constant values for this R/D and Reynolds number
     k1_star = ito.get_k(rd1, re) / miller.interpolate_re_correction(re)
     k2_star = ito.get_k(rd2, re) / miller.interpolate_re_correction(re)
@@ -504,11 +479,14 @@ def find_scramble_k(k:float, scramble_coefficient:float, re:float, curvature:flo
     Returns:
         float: k
     """
-    miller = Miller()
     k_star = k/miller.interpolate_re_correction(re)
     outlet_correction = miller.interpolate_k_outlet_correction(k_star,outflow_length)
     if  curvature not in [2,3]:
             raise ValueError(f"You must give a power law relationship for the curvature")
     
     return k*outlet_correction*scramble_coefficient
+
+
+
+flow = Flow(5,998,1E-3,10E-3)
 
