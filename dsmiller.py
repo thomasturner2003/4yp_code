@@ -79,7 +79,7 @@ class Solver:
             prev_pipe = pipes[i]
             next_pipe = pipes[i+1]
             if orientation_dependent:
-                avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds, angles=[relative_orientation(prev_bend, bend)])
+                avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds, angles=[self.relative_orientation(prev_bend, bend)])
             else:
                 avg_scramble, min_scramble, max_scramble = get_scramble_coefficient(prev_bend.r_d, bend.r_d, prev_pipe.length_d,re=flow.reynolds)
             K_avg+=find_scramble_k(bend.k_value, avg_scramble, flow.reynolds, bend.r_d, next_pipe.length_d)
@@ -132,10 +132,26 @@ class Solver:
         else:
             print("solver not found")
             return -1
+    
+    def relative_orientation(bend_1:Bend, bend_2:Bend)->float:
+        """Calculates the relative orientation of 2 bends
 
+        Args:
+            bend_1 (Bend):
+            bend_2 (Bend): 
+
+        Returns:
+            float: relative orientation [deg]
+        """
+        o_1 = bend_1.orientation
+        o_2 = bend_2.orientation
+        diff = abs(o_2 - o_1)
+        diff = min(diff, 360-diff)
+        return diff
+  
 
 class Data:
-    supported_sources = ["turner", "miller", "ito"]
+    supported_sources = ["turner", "miller", "ito", "blasius"]
     supported_curvatures = [2,3]
     
     def __init__(self, source:str, flow:Flow):
@@ -144,12 +160,37 @@ class Data:
         self.source = source
         self.flow = flow
         
-    # Finding K for elbow
-    def get_elbow_k(self, rd:int)->float:
-        if self.source != "ito":
-            raise RuntimeWarning(f"Data source for elbow K should be Ito")
-        return self._ito_k(self, rd, self.flow.reynolds)
+    # Find the pipe pressure loss
+    def get_pipe_loss(self, L:float)->float:
+        if self.source != "blasius":
+            raise RuntimeError("Only Blasius data supports pipe loss")
+        return self._blasius_darcy(L)
     
+    def _blasius_darcy(self, L:float)->float:
+        """Calculates the pressure drop givent the Blasius relation for the Darcy friction factor
+
+        Args:
+            L (float): Length of pipe [m]
+            flow (Flow): Flow characteristic [-]
+
+        Returns:
+            float: Pressure drop [Pa]
+        """
+        re = self.flow.reynolds
+        f = 0.3164*(re**-0.25)
+        return f*(L/self.flow.diameter)*(self.flow.rho*self.flow.speed**2)/2
+
+    # Finding K for elbow
+    def get_elbow_k(self, rd:int, diameter_ratio:float=1)->float:
+        if self.source == "ito":
+            if diameter_ratio != 1:
+                raise ValueError("diameter ratio in Ito method must be 1")
+            return self._ito_k(rd, self.flow.reynolds)
+        elif self.source == "turner":
+            return self._turner_elbow_k(rd, self.flow.reynolds, diameter_ratio)
+        else:
+            raise RuntimeError("Source not supported for get_elbow_k")
+            
     def _ito_k(self, rd: int, re: float, theta:float=90)->float:
         """
         Calculates the K value of an elbow using the Ito method.
@@ -170,6 +211,19 @@ class Data:
         K = 0.00241 * alpha * theta * (ratio ** 0.84) * (re ** -0.17)
         return K
 
+    def _turner_elbow_k(self, rd:int, re:float, diameter_ratio:float)->float:
+        diameter_ratios = [0.9, 1, 1.1]
+        if abs(re-50E3) >1000:
+            raise ValueError("For Turner method the Reynolds number needs to ~ 50,000")
+        if diameter_ratio not in diameter_ratios:
+            raise ValueError(f"Turner method only supports diameter ratios {diameter_ratios}")
+        with open('Data Sources/turner_elbow_k.json', 'r') as f:
+            lookup_data = json.load(f)
+        for entry in lookup_data:
+            if abs(entry["diameter_ratio"] - diameter_ratio) < 1e-6 and abs(entry["R/D"] - rd) < 1e-6:
+                return entry["K"]
+        raise ValueError(f"No match found in Turner elbow diameter for diameter_ratio {diameter_ratio} and R/D {rd}")
+         
     # Finding correction factors for elbows
     def get_elbow_correction_factor(self, rd1:int, rd2:int, seperation:float, twist:float)->float:
         """
@@ -252,7 +306,7 @@ class Data:
     def get_reynolds_correction_factor(self)->float:
         if self.source != "miller":
             raise RuntimeWarning("Data source for Reynolds correction should be Miller")
-        return self._miller_interpolated_elbow_correction(flow.reynolds)
+        return self._miller_interpolated_reynolds_correction(flow.reynolds)
     
     def _miller_interpolated_reynolds_correction(self,re:float,json_path="Data Sources/miller_reynolds_correction.json")->float:
         # 1. Load data from JSON
@@ -291,23 +345,63 @@ class Data:
         return float(c_value)
     
     # Correcting for shortened outlet
-    def get_outlet_correction_factor(self, rd:int, outlet_length:float, area_ratio:float=1)->float:
+    def get_outlet_correction_factor(self, rd:int, outlet_length:float, diameter_ratio:float=1)->float:
         if rd not in self.supported_curvatures:
             raise ValueError("Curvature not supported")
         
         if self.source == "miller":
-            if area_ratio != 1:
+            if diameter_ratio != 1:
                 raise ValueError("Miller data for outlet correction only supports area ratio of 1")
             return self._miller_outlet_correction_factor(rd, outlet_length)
         elif self.source == "turner":
-            return 0
+            return self._turner_outlet_correction_factor(rd,diameter_ratio,outlet_length)
         else:
             raise RuntimeWarning("Data source for outlet correction factor should be Miller or Turner")
         
-    def _turner_outlet_correction_factor(self, rd:int, area_ratio:float, outlet_length:float)->float:
-        pass
-    
-    def _miller_outlet_correction_factor(self, rd:int, outlet_length:float, input_filename="miller_outlet_correction.csv"):
+    def _turner_outlet_correction_factor(self, rd:int, diameter_ratio:float, outlet_length:float, input_filename="Data Sources/turner_elbow_correction_factors.json")->float:
+        """
+        Calculates correction factor by filtering JSON for diameter_ratio and R/D.
+        
+        Args:
+            diameter_ratio (float): The ratio of diameters (e.g., 0.9, 1.0, 1.1)
+            rd (float): The R/D ratio (e.g., 2, 3)
+            outlet_length (float): The length/D to interpolate for.
+        """
+        # 1. Load the JSON list
+        with open(input_filename, 'r') as f:
+            data_list = json.load(f)
+        # 2. Filter by R/D and prepare points for griddata
+        points = []  # Will hold pairs of (diameter_ratio, ln_outlet_length)
+        values = []  # Will hold the corresponding C factors
+        
+        for entry in data_list:
+            # Filter by the specific R/D curve
+            if abs(entry['R/D'] - rd) < 1e-6:
+                dr = entry['diameter_ratio']
+                
+                for len_str, c_val in entry['outlet_length'].items():
+                    l_val = float(len_str)
+                    # Apply the natural log transformation as per original logic
+                    points.append([dr, np.log(l_val + 1)])
+                    values.append(c_val)
+        
+        if not points:
+            raise ValueError(f"No data found for R/D={rd}")
+
+        # 3. Prepare the target point for interpolation
+        target_point = np.array([[diameter_ratio, np.log(outlet_length + 1)]])
+        
+        # 4. Perform 2D Interpolation
+        c_value = griddata(np.array(points), np.array(values), target_point, method='linear')
+        
+        # Handle NaN if the target point is outside the convex hull of the data
+        if np.isnan(c_value):
+            # Fallback: nearest neighbor if outside the bounds
+            c_value = griddata(np.array(points), np.array(values), target_point, method='nearest')
+
+        return float(c_value[0])
+        
+    def _miller_outlet_correction_factor(self, rd:int, outlet_length:float, input_filename="Data Sources/miller_outlet_correction.csv"):
         # 0. Find the k_star
         k_star = self._ito_k(rd, self.flow.reynolds)/self._miller_interpolated_reynolds_correction(self.flow.reynolds)
         
@@ -332,70 +426,86 @@ class Data:
             
         return float(c_value)
         
+    # Finding scramble coefficient
     
-class Turner:
-    def __innit__(self):
-        pass
-    def get_outlet_correction(self, outlet_length:float, input_filename="elbow_outlet_correction_rd2.csv")->float:
-        """Calculates the correction factor due to shortened outlet using data from CFD data
+    def _miller_scramble_coefficient(self, rd1:float, rd2:float, seperation:float, angles=[0,30,60,90,120,150,180])->tuple[float,float,float]:
+        """ Calculates the average, minimum, and maximum scramble coefficients across a set of orientations.
 
         Args:
-            rd: Bend radius/D [-]
-            outlet_length (float): length/D [-]
-            input_filename (str, optional):
+            rd1 (float): R/D for bend 1 [-]
+            rd2 (float): R/D for bend 2 [-]
+            sep (float): seperation/D [-]
+            angles (list, optional): relative orientations to test [deg]. Defaults to [0,30,60,90,120,150,180].
+            re (_type_, optional): Reynolds number [-]. Defaults to 50E3.
 
         Returns:
-            float: Correction factor [-]
+            tuple[float,float,float]: avergae, minimum, maximum scramble coefficients [-,-,-]
         """
-        df = pd.read_csv(input_filename)
-        d_vals = df['outlet_length'].values
-        c_vals = df['c_values'].values
-        # 2. Natural log transformation with +1 offset
-        ln_d_vals = np.log(d_vals + 1)
-        ln_d_outlet = np.log(outlet_length + 1)
+        angle_scrambles = []
         
+        for angle in angles:
+            # Get correction factor for this specific orientation
+            correction = self._miller_interpolated_elbow_correction(rd1, rd2, seperation, angle)
+            
+            # Calculate individual scramble
+            k1_star = self._ito_k(rd1, self.flow.reynolds) / self._miller_interpolated_reynolds_correction(self.flow.reynolds)
+            k2_star = self._ito_k(rd2, self.flow.reynolds) / self._miller_interpolated_reynolds_correction(self.flow.reynolds)
+            s = (correction*(k1_star+k2_star) - k1_star*self._miller_outlet_correction_factor(rd1,seperation))/k2_star
+            angle_scrambles.append(s)
         
-        # Returns the interpolated C factor for the given outlet length
-        c_value = griddata(ln_d_vals, c_vals, ln_d_outlet, method='linear')
+        # Calculate statistics
+        avg_scramble = sum(angle_scrambles) / len(angle_scrambles)
+        min_scramble = min(angle_scrambles)
+        max_scramble = max(angle_scrambles)
+        
+        return avg_scramble, min_scramble, max_scramble
+    
+    def _turner_scramble_coefficient(self, rd1:float, rd2:float, seperation:float, angles=[0,180], diameter_ratio=1)->tuple[float, float, float]:
+        angle_scrambles = []
 
+        for angle in angles:
+            # Get correction factor for this specific orientation
+            correction = self._miller_interpolated_elbow_correction(rd1, rd2, seperation, angle)
+            
+            # Calculate individual scramble
+            k1 = self._turner_elbow_k(rd1, self.flow.reynolds, diameter_ratio)
+            k2= self._turner_elbow_k(rd1, self.flow.reynolds, diameter_ratio)
+            s = (correction*(k1+k2) - k1*self._turner_outlet_correction_factor(rd1,diameter_ratio,seperation))/k2
+            angle_scrambles.append(s)
         
-        return float(c_value)
+        # Calculate statistics
+        avg_scramble = sum(angle_scrambles) / len(angle_scrambles)
+        min_scramble = min(angle_scrambles)
+        max_scramble = max(angle_scrambles)
+        
+        return avg_scramble, min_scramble, max_scramble
+    
+    # Find the K value
+    def _miller_scramble_k(self, k:float, scramble_coefficient:float, re:float, curvature:float, outflow_length:float)->float:
+        """Finds the K using the scramble and the outlet correction
+
+        Args:
+            k (float): Pressure loss coefficent [-]
+            re (float): Reynolds number [-]
+            curvature (float): Radius of curvature/Diameter [-]
+            inflow_length (float): Inflow length/Diameter [-]
+            outflow_length (float): Outflow length/Diameter [-]
+
+        Returns:
+            float: k
+        """
+        k_star = k/miller.interpolate_re_correction(re)
+        outlet_correction = miller.interpolate_k_outlet_correction(k_star,outflow_length)
+        
+        return k*outlet_correction*scramble_coefficient
+
+
+
 
 
 #METHODS   
 
- 
-def blasius_darcy(L:float, flow:Flow)->float:
-    """Calculates the pressure drop givent the Blasius relation for the Darcy friction factor
 
-    Args:
-        L (float): Length of pipe [m]
-        flow (Flow): Flow characteristic [-]
-
-    Returns:
-        float: Pressure drop [Pa]
-    """
-    re = flow.reynolds
-    f = 0.3164*(re**-0.25)
-    return f*(L/flow.diameter)*(flow.rho*flow.speed**2)/2
-
-
-def relative_orientation(bend_1:Bend, bend_2:Bend)->float:
-    """Calculates the relative orientation of 2 bends
-
-    Args:
-        bend_1 (Bend):
-        bend_2 (Bend): 
-
-    Returns:
-        float: relative orientation [deg]
-    """
-    o_1 = bend_1.orientation
-    o_2 = bend_2.orientation
-    diff = abs(o_2 - o_1)
-    diff = min(diff, 360-diff)
-    return diff
-  
 
 def calculate_k(loss:float, L:float, flow:Flow)->float:
     """ Calculates the value of K given the loss
@@ -414,79 +524,7 @@ def calculate_k(loss:float, L:float, flow:Flow)->float:
 
 # Uncluster this mess so I can choose to use Miller or turner methods, 
 
-def calculate_scramble_coefficient(k1_star:float, k2_star:float, correction:float, seperation:float)->float:
-    """Calculates the scramble coefficient for a set of bends
 
-    Args:
-        k1_star (float): first bend K value at Re 1E6 [-]
-        k2_star (float): second bend K value at Re 1E6 [-]
-        correction (float): correction for the bend combination given by DS Miller [-]
-        seperation (float): seperation distance/D [-]
-        
-    Returns:
-        float: scramble coefficient [-]
-    """
-    return (correction*(k1_star+k2_star) - k1_star*miller.interpolate_k_outlet_correction(k1_star, seperation))/k2_star
-
-
-def get_scramble_coefficient(rd1:float, rd2:float, sep:float, angles=[0,30,60,90,120,150,180], re=50E3)->tuple[float,float,float]:
-    """ Calculates the average, minimum, and maximum scramble coefficients across a set of orientations.
-
-    Args:
-        rd1 (float): R/D for bend 1 [-]
-        rd2 (float): R/D for bend 2 [-]
-        sep (float): seperation/D [-]
-        angles (list, optional): relative orientations to test [deg]. Defaults to [0,30,60,90,120,150,180].
-        re (_type_, optional): Reynolds number [-]. Defaults to 50E3.
-
-    Returns:
-        tuple[float,float,float]: avergae, minimum, maximum scramble coefficients [-,-,-]
-    """
-    angle_scrambles = []
-    # Pre-calculate constant values for this R/D and Reynolds number
-    k1_star = ito.get_k(rd1, re) / miller.interpolate_re_correction(re)
-    k2_star = ito.get_k(rd2, re) / miller.interpolate_re_correction(re)
-    
-    for angle in angles:
-        # Get correction factor for this specific orientation
-        cf = miller.get_interpolated_correction_factor(rd1, rd2, sep, angle)
-        
-        # Calculate individual scramble
-        s = calculate_scramble_coefficient(k1_star, k2_star, cf, sep)
-        angle_scrambles.append(s)
-    
-    # Calculate statistics
-    avg_scramble = sum(angle_scrambles) / len(angle_scrambles)
-    min_scramble = min(angle_scrambles)
-    max_scramble = max(angle_scrambles)
-    
-    return avg_scramble, min_scramble, max_scramble
-
-
-def find_scramble_k(k:float, scramble_coefficient:float, re:float, curvature:float, outflow_length:float)->float:
-    """Finds the K using the scramble and the outlet correction
-
-    Args:
-        k (float): Pressure loss coefficent [-]
-        re (float): Reynolds number [-]
-        curvature (float): Radius of curvature/Diameter [-]
-        inflow_length (float): Inflow length/Diameter [-]
-        outflow_length (float): Outflow length/Diameter [-]
-
-    Raises:
-        ValueError: If curvature is not in the data set
-
-    Returns:
-        float: k
-    """
-    k_star = k/miller.interpolate_re_correction(re)
-    outlet_correction = miller.interpolate_k_outlet_correction(k_star,outflow_length)
-    if  curvature not in [2,3]:
-            raise ValueError(f"You must give a power law relationship for the curvature")
-    
-    return k*outlet_correction*scramble_coefficient
-
-
-
-flow = Flow(5,998,1E-3,10E-3)
-
+flow = Flow(5,998,1E-3,10E-3)    
+data = Data("ito", flow)
+print(data.get_outlet_correction_factor(2,5,1.1))
