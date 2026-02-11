@@ -242,7 +242,7 @@ class Data:
         else:
             raise RuntimeWarning("Data source for outlet correction factor should be Miller or Turner")
         
-    def _turner_outlet_correction_factor(self, rd:int, diameter_ratio:float, outlet_length:float, input_filename="Data Sources/turner_elbow_correction_factors.json")->float:
+    def _turner_outlet_correction_factor(self, rd:int, diameter_ratio:float, outlet_length:float, input_filename="Data Sources/turner_elbow_outlet_correction_factors.json")->float:
         """
         Calculates correction factor by filtering JSON for diameter_ratio and R/D.
         
