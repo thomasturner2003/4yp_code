@@ -12,12 +12,12 @@
     {
         "diameter_ratio": 0.9,
         "R/D": 2,
-        "K": 0.479083747
+        "K": 0.563
     },
     {
         "diameter_ratio": 0.9,
         "R/D": 3,
-        "K": 0.468799819
+        "K": 0.55
     },
     {
         "diameter_ratio": 1.0,

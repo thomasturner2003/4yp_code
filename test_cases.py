@@ -60,5 +60,5 @@ for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
         outlet_inlet_dp = blasius_source.get_pipe_loss(case['inlet_length'] + case['outlet_length'])
         elbows_errors.append((case['pressure_drop'] - solver.get_pressure_drop(bends, pipes)) / (case['pressure_drop']-outlet_inlet_dp))
     end = time.time()
-    print(f"{file_path},MEAN Absolute: {100*np.mean(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.mean(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
-    print(f"{file_path},MEDIAN Absolute: {100*np.median(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.median(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
+    print(f"{file_path}, MEAN Absolute: {100*np.mean(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.mean(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
+    print(f"{file_path}, MEDIAN Absolute: {100*np.median(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.median(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
