@@ -109,7 +109,7 @@ class Data:
         raise ValueError(f"No match found in Turner elbow diameter for diameter_ratio {diameter_ratio} and R/D {rd}")
          
     # Finding correction factors for elbows
-    def get_elbow_correction_factor(self, rd1:int, rd2:int, seperation:float, twist:float)->float:
+    def get_elbow_correction_factor(self, rd1:int, rd2:int, seperation:float, twist:float, diameter_ratio:float=1)->float:
         """
         Retrieves the interaction correction factor (C) for combinations of two 90° bends.
 
@@ -122,11 +122,22 @@ class Data:
         Returns:
         - float: The interaction correction factor
         """
-        if self.source != "miller":
-            raise RuntimeWarning("Data source for elbow correction factor should be Miller")
         if rd1 not in self.supported_curvatures or rd2 not in self.supported_curvatures:
             raise ValueError(f"Curvature not in supported curvatures {self.supported_curvatures}")
-        return self._miller_interpolated_elbow_correction(rd1,rd2,seperation,twist)
+        if self.source == "miller":
+            return self._miller_interpolated_elbow_correction(rd1,rd2,seperation,twist)
+        elif self.source == "turner":
+            
+            if diameter_ratio == 1:
+                return self._turner_interpolated_elbow_correction(rd1,rd2,seperation,twist)
+            elif diameter_ratio == 1.1:
+                return self._turner_interpolated_elbow_correction(rd1,rd2,seperation,twist, json_path="Data Sources/turner_elbow_correction_factors_11.json")
+            elif diameter_ratio == 0.9:
+                return self._turner_interpolated_elbow_correction(rd1,rd2,seperation,twist, json_path="Data Sources/turner_elbow_correction_factors_09.json")
+            else:
+                raise RuntimeError(f"Elbow correction factor in Turner solver does not resolve diameter ratio given: {diameter_ratio}")
+        else:
+            raise RuntimeError("Data source for elbow correction factor should be Miller or Turner")
 
     def _miller_interpolated_elbow_correction(self, rd1: int, rd2: int, seperation: float, twist: float, json_path="Data Sources/miller_elbow_correction_factors.json") -> float:
         
@@ -184,6 +195,57 @@ class Data:
         if np.isnan(result):
             result = griddata(points, values, target_point, method='nearest')[0]
             
+        return float(result)
+    
+    def _turner_interpolated_elbow_correction(self, rd1: int, rd2:int, seperation: float, twist:float, json_path="Data Sources/turner_elbow_correction_factors.json")->float:
+         # Condition: If separation is 30 or greater, correction is exactly 1.0
+        if seperation >= 30:
+            return 1.0
+        
+        # 1. Load the data directly from JSON
+        if not os.path.exists(json_path):
+            raise FileNotFoundError(f"Could not find {json_path}")
+
+        with open(json_path, 'r') as f:
+            full_data = json.load(f)
+            # Assuming the JSON root is {"correction_factors": {...}}
+            correction_factors = full_data.get("correction_factors", {})
+        # 2. Match the JSON key format "r1-r2"
+        radii_key = f"{int(rd1)}-{int(rd2)}"
+        
+        if radii_key not in correction_factors:
+            raise ValueError(f"Radii pair {radii_key} not found in {json_path}.")
+        
+        data_map = correction_factors[radii_key]
+        
+        # 3. Transform existing grid into log-space
+        points = []
+        values = []
+        
+        for sep_str, angles_dict in data_map.items():
+            # JSON keys are strings, cast back to float for log math
+            log_sep = np.log1p(float(sep_str)) 
+            
+            for ang_str, factor in angles_dict.items():
+                points.append((log_sep, float(ang_str)))
+                values.append(factor)
+                    
+        # 4. Add Convergence Points
+        # Adding points at sep=30 (factor 1.0) and sep=20 (factor 0.97)
+        for ang in [0,30,60,90,120,150, 180]:
+            points.append((np.log1p(30), float(ang)))
+            values.append(1.0)
+                    
+        points = np.array(points)
+        values = np.array(values)
+        # 5. Interpolate target in log-space
+        target_point = np.array([[np.log1p(seperation), twist]])
+        # Linear interpolation
+        result = griddata(points, values, target_point, method='linear')[0]
+         
+        # Fallback to nearest if on the very edge (NaN protection)
+        if np.isnan(result):
+            result = griddata(points, values, target_point, method='nearest')[0]   
         return float(result)
     
     # Correcting for Reynold's correction
@@ -311,7 +373,6 @@ class Data:
         return float(c_value)
         
     # Finding scramble coefficient
-    
     def get_scramble_correction(self, rd1:int, rd2:int, seperation:float, diameter_ratio=1, angles=[0,30,60,90,120,150,180])->tuple[float,float,float]:
         """ Calculates the average, minimum, and maximum scramble coefficients across a set of orientations for the second elbow.
 
@@ -328,7 +389,7 @@ class Data:
         
         for angle in angles:
             # Get correction factor for this specific orientation
-            correction = self._miller_interpolated_elbow_correction(rd1, rd2, seperation, angle)
+            correction = self.get_elbow_correction_factor(rd1, rd2, seperation, angle, diameter_ratio)
             
             # Calculate individual scramble
             if self.source == "miller":

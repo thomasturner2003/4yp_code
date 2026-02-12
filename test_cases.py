@@ -34,13 +34,14 @@ def json_case_generator(file_path):
         yield case
         
 
-file_paths = ['Dataset/random_triplets.json' ]
+file_paths = ['Dataset/expansion_triplets.json', 'Dataset/random_triplets.json', 'Dataset/contraction_triplets.json' ]
+diameter_ratios= [1.1, 1, 0.9]
 diameter = 10E-3
 flow = dsmiller.Flow(5,998,1E-3,diameter)
 solver = dsmiller.Solver("oriented", "turner", flow)
 
 blasius_source = dsmiller.Data("blasius", flow)
-for file_path in file_paths:
+for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
     start = time.time()
     errors = []
     elbows_errors = []
@@ -48,7 +49,7 @@ for file_path in file_paths:
     for case in json_case_generator(file_path):
         bends = [] 
         for r,o in zip(case['bend_radii'], case["twists"]):
-            bends.append(dsmiller.Bend(int(r/diameter),o))
+            bends.append(dsmiller.Bend(int(r/diameter),o, diameter_ratio=diameter_ratio))
         pipes = []
         pipes.append(dsmiller.PipeSection(case['inlet_length']/diameter))
         for l in case['connector_lengths']:
