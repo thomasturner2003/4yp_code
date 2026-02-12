@@ -33,7 +33,6 @@ def json_case_generator(file_path):
         }
         yield case
         
-
 file_paths = ['Dataset/expansion_triplets.json', 'Dataset/random_triplets.json', 'Dataset/contraction_triplets.json' ]
 diameter_ratios= [1.1, 1, 0.9]
 diameter = 10E-3
@@ -55,10 +54,12 @@ for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
         for l in case['connector_lengths']:
             pipes.append(dsmiller.PipeSection(l/diameter))
         pipes.append(dsmiller.PipeSection(case['outlet_length']/diameter))
-        error = (case['pressure_drop'] - solver.get_pressure_drop(bends, pipes)) / case['pressure_drop']
+        calculated_pressure_drop = solver.get_pressure_drop(bends, pipes)
+        cfd_pressure_drop = case['pressure_drop']
+        error = (cfd_pressure_drop - calculated_pressure_drop) / cfd_pressure_drop
         errors.append(error)
         outlet_inlet_dp = blasius_source.get_pipe_loss(case['inlet_length'] + case['outlet_length'])
-        elbows_errors.append((case['pressure_drop'] - solver.get_pressure_drop(bends, pipes)) / (case['pressure_drop']-outlet_inlet_dp))
+        elbows_errors.append((cfd_pressure_drop - calculated_pressure_drop) / (cfd_pressure_drop-outlet_inlet_dp))
     end = time.time()
     print(f"{file_path}, MEAN Absolute: {100*np.mean(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.mean(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
     print(f"{file_path}, MEDIAN Absolute: {100*np.median(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.median(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")

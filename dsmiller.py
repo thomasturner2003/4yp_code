@@ -36,7 +36,7 @@ class Flow:
 class Data:
     supported_sources = ["turner", "miller", "ito", "blasius"]
     supported_curvatures = [2,3]
-    
+
     def __init__(self, source:str, flow:Flow):
         if source.lower() not in self.supported_sources:
             raise RuntimeError(f"No data for {source} in supported sources: {self.supported_sources}")
