@@ -37,14 +37,13 @@ file_paths = ['Dataset/expansion_triplets.json', 'Dataset/random_triplets.json',
 diameter_ratios= [1.1, 1, 0.9]
 diameter = 10E-3
 flow = dsmiller.Flow(5,998,1E-3,diameter)
-solver = dsmiller.Solver("oriented", "turner", flow)
+solver = dsmiller.Solver("isolated", "turner", flow)
 
 blasius_source = dsmiller.Data("blasius", flow)
 for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
     start = time.time()
     errors = []
     elbows_errors = []
-    max_error = 0
     for case in json_case_generator(file_path):
         bends = [] 
         for r,o in zip(case['bend_radii'], case["twists"]):
