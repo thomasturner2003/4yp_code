@@ -1,5 +1,5 @@
 import json
-import dsmiller
+import model
 import numpy as np
 import time
 
@@ -36,10 +36,10 @@ def json_case_generator(file_path):
 file_paths = ['Dataset/expansion_triplets.json', 'Dataset/random_triplets.json', 'Dataset/contraction_triplets.json' ]
 diameter_ratios= [1.1, 1, 0.9]
 diameter = 10E-3
-flow = dsmiller.Flow(5,998,1E-3,diameter)
-solver = dsmiller.Solver("isolated", "turner", flow)
+flow = model.Flow(5,998,1E-3,diameter)
+solver = model.Solver("oriented", "turner", flow)
 
-blasius_source = dsmiller.Data("blasius", flow)
+blasius_source = model.Data("blasius", flow)
 for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
     start = time.time()
     errors = []
@@ -47,12 +47,12 @@ for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
     for case in json_case_generator(file_path):
         bends = [] 
         for r,o in zip(case['bend_radii'], case["twists"]):
-            bends.append(dsmiller.Bend(int(r/diameter),o, diameter_ratio=diameter_ratio))
+            bends.append(model.Bend(int(r/diameter),o, diameter_ratio=diameter_ratio))
         pipes = []
-        pipes.append(dsmiller.PipeSection(case['inlet_length']/diameter))
+        pipes.append(model.PipeSection(case['inlet_length']/diameter))
         for l in case['connector_lengths']:
-            pipes.append(dsmiller.PipeSection(l/diameter))
-        pipes.append(dsmiller.PipeSection(case['outlet_length']/diameter))
+            pipes.append(model.PipeSection(l/diameter))
+        pipes.append(model.PipeSection(case['outlet_length']/diameter))
         calculated_pressure_drop = solver.get_pressure_drop(bends, pipes)
         cfd_pressure_drop = case['pressure_drop']
         error = (cfd_pressure_drop - calculated_pressure_drop) / cfd_pressure_drop
