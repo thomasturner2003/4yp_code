@@ -14,14 +14,14 @@ class PipeSection:
 
 
 class Bend:
-    def __init__(self, r_d: int, orientation: float, diameter_ratio:float=1):
+    def __init__(self, rd: int, orientation: float, diameter_ratio:float=1):
         """
-        :param r_d: The relative radius of the bend (r/d). Must be 1, 2, or 3.
+        :param rd: The relative radius of the bend (r/d).
         :param orientation: The orientation of the bend in the global coordinate system (degrees).
         :param k_value: The single bend loss coefficient (K value).
         """
-        self.r_d = r_d                  # Discrete bend radius (r/d, matching table values)
-        self.orientation = orientation  # Orientation to the global system (degrees)
+        self.rd = rd
+        self.orientation = orientation
         self.diameter_ratio = diameter_ratio
     
     
@@ -53,7 +53,7 @@ class Data:
         """Calculates the pressure drop givent the Blasius relation for the Darcy friction factor
 
         Args:
-            L (float): Length of pipe [m]
+            L (float): Length of pipe/diameter [m]
             flow (Flow): Flow characteristic [-]
 
         Returns:
@@ -91,7 +91,7 @@ class Data:
         ratio = 2*rd
         alpha = 0.95 + 17.2 * (ratio ** -1.96)
         
-        # K = 0.00241 * alpha * theta * (2R / D)^0.84 * Re^-0.17
+        # Formula from Ito 1960
         K = 0.00241 * alpha * theta * (ratio ** 0.84) * (re ** -0.17)
         return K
 
@@ -202,7 +202,7 @@ class Data:
         if seperation >= 30:
             return 1.0
         
-        # 1. Load the data directly from JSON
+        #  Load the data directly from JSON
         if not os.path.exists(json_path):
             raise FileNotFoundError(f"Could not find {json_path}")
 
@@ -210,7 +210,8 @@ class Data:
             full_data = json.load(f)
             # Assuming the JSON root is {"correction_factors": {...}}
             correction_factors = full_data.get("correction_factors", {})
-        # 2. Match the JSON key format "r1-r2"
+        #
+        # Match the JSON key format "rd1-rd2"
         radii_key = f"{int(rd1)}-{int(rd2)}"
         
         if radii_key not in correction_factors:
@@ -218,7 +219,7 @@ class Data:
         
         data_map = correction_factors[radii_key]
         
-        # 3. Transform existing grid into log-space
+        # Transform existing grid into log-space
         points = []
         values = []
         
@@ -230,8 +231,7 @@ class Data:
                 points.append((log_sep, float(ang_str)))
                 values.append(factor)
                     
-        # 4. Add Convergence Points
-        # Adding points at sep=30 (factor 1.0) and sep=20 (factor 0.97)
+        # Add Convergence Points
         for ang in [0,30,60,90,120,150, 180]:
             points.append((np.log1p(30), float(ang)))
             values.append(1.0)
@@ -255,29 +255,29 @@ class Data:
         return self._miller_interpolated_reynolds_correction(flow.reynolds)
     
     def _miller_interpolated_reynolds_correction(self,re:float,json_path="Data Sources/miller_reynolds_correction.json")->float:
-        # 1. Load data from JSON
+        # Load data from JSON
         if not os.path.exists(json_path):
             raise FileNotFoundError(f"Could not find {json_path}")
 
         with open(json_path, 'r') as f:
             data = json.load(f)
 
-        # 2. Extract Re and C values from the list of objects format
+        # Extract Re and C values from the list of objects format
         # Using the "List of Objects" format provided in the previous step
         re_original = np.array([item["Re"] for item in data])
         c_original = np.array([item["C"] for item in data])
         
-        # 3. Handle out-of-bounds cases (Optional but recommended)
+        # Handle out-of-bounds cases (Optional but recommended)
         if re <= re_original.min():
             return float(c_original[0])
         if re >= re_original.max():
             return float(c_original[-1])
 
-        # 4. Transform original Re and input Re to log-space
+        # Transform original Re and input Re to log-space
         log_re_orig = np.log10(re_original)
         log_re_input = np.log10(re)
         
-        # 5. Interpolate C based on log10(Re)
+        # Interpolate C based on log10(Re)
         points = log_re_orig.reshape(-1, 1)
         xi = np.array([[log_re_input]])
         
@@ -302,7 +302,7 @@ class Data:
         elif self.source == "turner":
             return self._turner_outlet_correction_factor(rd,diameter_ratio,outlet_length)
         else:
-            raise RuntimeWarning("Data source for outlet correction factor should be Miller or Turner")
+            raise RuntimeError("Data source for outlet correction factor should be Miller or Turner")
         
     def _turner_outlet_correction_factor(self, rd:int, diameter_ratio:float, outlet_length:float, input_filename="Data Sources/turner_elbow_outlet_correction_factors.json")->float:
         """
@@ -313,10 +313,10 @@ class Data:
             rd (float): The R/D ratio (e.g., 2, 3)
             outlet_length (float): The length/D to interpolate for.
         """
-        # 1. Load the JSON list
+        # Load the JSON list
         with open(input_filename, 'r') as f:
             data_list = json.load(f)
-        # 2. Filter by R/D and prepare points for griddata
+        # Filter by R/D and prepare points for griddata
         points = []  # Will hold pairs of (diameter_ratio, ln_outlet_length)
         values = []  # Will hold the corresponding C factors
         
@@ -334,10 +334,10 @@ class Data:
         if not points:
             raise ValueError(f"No data found for R/D={rd}")
 
-        # 3. Prepare the target point for interpolation
+        # Prepare the target point for interpolation
         target_point = np.array([[diameter_ratio, np.log(outlet_length + 1)]])
         
-        # 4. Perform 2D Interpolation
+        # Perform 2D Interpolation
         c_value = griddata(np.array(points), np.array(values), target_point, method='linear')
         
         # Handle NaN if the target point is outside the convex hull of the data
@@ -348,24 +348,24 @@ class Data:
         return float(c_value[0])
         
     def _miller_outlet_correction_factor(self, rd:int, outlet_length:float, input_filename="Data Sources/miller_outlet_correction.csv"):
-        # 0. Find the k_star
+        # Find the k_star
         k_star = self._ito_k(rd, self.flow.reynolds)/self._miller_interpolated_reynolds_correction(self.flow.reynolds)
         
-        # 1. Load data
+        # Load data
         df = pd.read_csv(input_filename)
         k_vals = df['K_star'].values
         len_vals = df['Outlet length'].values
         c_vals = df['C'].values
         
-        # 2. Natural log transformation with +1 offset
+        # Natural log transformation with +1 offset
         ln_len_orig = np.log1p(len_vals) 
         ln_len_input = np.log1p(outlet_length)
         
-        # 3. Define the coordinate space (K*, ln(L+1))
+        # Define the coordinate space (K*, ln(L+1))
         points = np.column_stack((k_vals, ln_len_orig))
         xi = np.array([[k_star, ln_len_input]])
         
-        # 4. Interpolate
+        # Interpolate
         c_value = griddata(points, c_vals, xi, method='linear')[0]
         if np.isnan(c_value):
             c_value = griddata(points, c_vals, xi, method='nearest')[0]
@@ -414,16 +414,16 @@ class Data:
 
     # Finding scrambled K
     def get_scrambled_k(self, prev_bend:Bend, bend:Bend, prev_pipe:PipeSection, next_pipe:PipeSection, diameter_ratio:float = 1, angles=[0,180]):
-        scrambled_correction = self.get_scramble_correction(prev_bend.r_d, bend.r_d, prev_pipe.length_d, diameter_ratio, angles)[0]
-        outlet_correction = self.get_outlet_correction_factor(bend.r_d,next_pipe.length_d, diameter_ratio)
-        k = self.get_elbow_k(bend.r_d, diameter_ratio)
+        scrambled_correction = self.get_scramble_correction(prev_bend.rd, bend.rd, prev_pipe.length_d, diameter_ratio, angles)[0]
+        outlet_correction = self.get_outlet_correction_factor(bend.rd,next_pipe.length_d, diameter_ratio)
+        k = self.get_elbow_k(bend.rd, diameter_ratio)
         return k*scrambled_correction*outlet_correction
 
     # Finding scrambled K
     def get_first_k(self, bend:Bend, next_pipe:PipeSection, diameter_ratio:float = 1):
         scrambled_correction = 1
-        outlet_correction = self.get_outlet_correction_factor(bend.r_d,next_pipe.length_d, diameter_ratio)
-        k = self.get_elbow_k(bend.r_d, diameter_ratio)
+        outlet_correction = self.get_outlet_correction_factor(bend.rd,next_pipe.length_d, diameter_ratio)
+        k = self.get_elbow_k(bend.rd, diameter_ratio)
         return k*scrambled_correction*outlet_correction
 
 
@@ -451,15 +451,15 @@ class Solver:
         Returns:
             float: Total pressure drop [Pa]
         """
-        # validity
+        # Check it is a valid setup
         if  len(pipes) - len(bends) != 1:
                 raise RuntimeError(f"You must have an inlet, outlet pipe and pipes between all elbows")
-        # pressure drop in the pipes
+        # Pressure drop in the pipes
         L_d = 0
         for pipe in pipes:
             L_d +=  pipe.length_d
         drop = self.blasius_source.get_pipe_loss(L_d*flow.diameter)
-        # pressure drop in the bends
+        # Pressure drop in the bends
         bend = bends[0]
         next_pipe = pipes[1]
         K=self.data_source.get_first_k(bend, next_pipe,bend.diameter_ratio)
@@ -486,18 +486,18 @@ class Solver:
         Returns:
             float: pressure drop [Pa]
         """
-        # validity
+        # Check it is a valid setup
         if  len(pipes) - len(bends) != 1:
                 raise ValueError(f"You must have an inlet, outlet pipe and pipes between all elbows")
-        # pressure drop in the pipes
+        # Pressure drop in the pipes
         L_d = 0
         for pipe in pipes:
             L_d +=  pipe.length_d
         drop = self.blasius_source.get_pipe_loss(L_d*flow.diameter)
-        # pressure drop in the bends
+        # Pressure drop in the bends
         K = 0
         for bend in bends:
-            K+=self.data_source.get_elbow_k(bend.r_d,bend.diameter_ratio)
+            K+=self.data_source.get_elbow_k(bend.rd,bend.diameter_ratio)
         drop += (0.5*flow.rho*flow.speed**2) * K
         return drop
     
@@ -510,8 +510,7 @@ class Solver:
         elif self.solver_type == "oriented":
             return self._interacting_pressure_drop(bends, pipes, self.flow)
         else:
-            print("solver not found")
-            return -1
+            raise RuntimeError(f"Solver: {self.solver_type} not in supported solvers")
     
     def relative_orientation(self, bend_1:Bend, bend_2:Bend)->float:
         """Calculates the relative orientation of 2 bends
