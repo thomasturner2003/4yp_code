@@ -26,8 +26,8 @@ class Bend:
     
     
 class Flow:
-    def __init__(self, speed:float, rho:float, viscosiy:float, diameter:float):
-        self.reynolds = rho*speed*diameter/viscosiy
+    def __init__(self, speed:float, rho:float, viscosity:float, diameter:float):
+        self.reynolds = rho*speed*diameter/viscosity
         self.diameter =diameter
         self.speed = speed
         self.rho = rho
@@ -44,16 +44,27 @@ class Data:
         self.flow = flow
         
     # Find the pipe pressure loss
-    def get_pipe_loss(self, L:float)->float:
+    def get_pipe_loss(self, L_d:float)->float:
+        """Calculates pipe loss in hydraulically smooth pipe
+
+        Args:
+            L_d (float): length of pipe/diameter of pipe
+
+        Raises:
+            RuntimeError: Solver not set to Blasius
+
+        Returns:
+            float: Pressure drop [Pa]
+        """
         if self.source != "blasius":
             raise RuntimeError("Only Blasius data supports pipe loss")
-        return self._blasius_darcy(L)
+        return self._blasius_darcy(L_d)
     
-    def _blasius_darcy(self, L:float)->float:
+    def _blasius_darcy(self, L_d:float)->float:
         """Calculates the pressure drop givent the Blasius relation for the Darcy friction factor
 
         Args:
-            L (float): Length of pipe/diameter [m]
+            L_d (float): Length of pipe/diameter [-]
             flow (Flow): Flow characteristic [-]
 
         Returns:
@@ -61,7 +72,7 @@ class Data:
         """
         re = self.flow.reynolds
         f = 0.3164*(re**-0.25)
-        return f*(L/self.flow.diameter)*(self.flow.rho*self.flow.speed**2)/2
+        return f*(L_d)*(self.flow.rho*self.flow.speed**2)/2
 
     # Finding K for elbow
     def get_elbow_k(self, rd:int, diameter_ratio:float=1)->float:
@@ -109,14 +120,14 @@ class Data:
         raise ValueError(f"No match found in Turner elbow diameter for diameter_ratio {diameter_ratio} and R/D {rd}")
          
     # Finding correction factors for elbows
-    def get_elbow_correction_factor(self, rd1:int, rd2:int, seperation:float, twist:float, diameter_ratio:float=1)->float:
+    def get_elbow_correction_factor(self, rd1:int, rd2:int, separation:float, twist:float, diameter_ratio:float=1)->float:
         """
         Retrieves the interaction correction factor (C) for combinations of two 90° bends.
 
         Parameters:
         - rd1 (int): The relative radius (r/d) of the first 90° bend.
         - rd2 (int): The relative radius (r/d) of the second 90° bend.
-        - seperation (float): The spacer length ratio (Ls/d) between the bends (0, 1, 4, or 8).
+        - separation (float): The spacer length ratio (Ls/d) between the bends (0, 1, 4, or 8).
         - twist (float)): The twist angle (theta_c) in degrees (0, 30, 60, 90, 120, 150, or 180).
 
         Returns:
@@ -125,24 +136,24 @@ class Data:
         if rd1 not in self.supported_curvatures or rd2 not in self.supported_curvatures:
             raise ValueError(f"Curvature not in supported curvatures {self.supported_curvatures}")
         if self.source == "miller":
-            return self._miller_interpolated_elbow_correction(rd1,rd2,seperation,twist)
+            return self._miller_interpolated_elbow_correction(rd1,rd2,separation,twist)
         elif self.source == "turner":
             
             if diameter_ratio == 1:
-                return self._turner_interpolated_elbow_correction(rd1,rd2,seperation,twist)
+                return self._turner_interpolated_elbow_correction(rd1,rd2,separation,twist)
             elif diameter_ratio == 1.1:
-                return self._turner_interpolated_elbow_correction(rd1,rd2,seperation,twist, json_path="Data Sources/turner_elbow_correction_factors_11.json")
+                return self._turner_interpolated_elbow_correction(rd1,rd2,separation,twist, json_path="Data Sources/turner_elbow_correction_factors_11.json")
             elif diameter_ratio == 0.9:
-                return self._turner_interpolated_elbow_correction(rd1,rd2,seperation,twist, json_path="Data Sources/turner_elbow_correction_factors_09.json")
+                return self._turner_interpolated_elbow_correction(rd1,rd2,separation,twist, json_path="Data Sources/turner_elbow_correction_factors_09.json")
             else:
                 raise RuntimeError(f"Elbow correction factor in Turner solver does not resolve diameter ratio given: {diameter_ratio}")
         else:
             raise RuntimeError("Data source for elbow correction factor should be Miller or Turner")
 
-    def _miller_interpolated_elbow_correction(self, rd1: int, rd2: int, seperation: float, twist: float, json_path="Data Sources/miller_elbow_correction_factors.json") -> float:
+    def _miller_interpolated_elbow_correction(self, rd1: int, rd2: int, separation: float, twist: float, json_path="Data Sources/miller_elbow_correction_factors.json") -> float:
         
         # Condition: If separation is 30 or greater, correction is exactly 1.0
-        if seperation >= 30:
+        if separation >= 30:
             return 1.0
         
         # 1. Load the data directly from JSON
@@ -179,14 +190,12 @@ class Data:
         for ang in [0, 30, 60, 90, 120, 150, 180]:
             points.append((np.log1p(30), float(ang)))
             values.append(1.0)
-            points.append((np.log1p(20), float(ang)))
-            values.append(0.97)
-                    
+
         points = np.array(points)
         values = np.array(values)
         
         # 5. Interpolate target in log-space
-        target_point = np.array([[np.log1p(seperation), twist]])
+        target_point = np.array([[np.log1p(separation), twist]])
         
         # Linear interpolation
         result = griddata(points, values, target_point, method='linear')[0]
@@ -197,9 +206,9 @@ class Data:
             
         return float(result)
     
-    def _turner_interpolated_elbow_correction(self, rd1: int, rd2:int, seperation: float, twist:float, json_path="Data Sources/turner_elbow_correction_factors.json")->float:
+    def _turner_interpolated_elbow_correction(self, rd1: int, rd2:int, separation: float, twist:float, json_path="Data Sources/turner_elbow_correction_factors.json")->float:
          # Condition: If separation is 30 or greater, correction is exactly 1.0
-        if seperation >= 30:
+        if separation >= 30:
             return 1.0
         
         #  Load the data directly from JSON
@@ -239,7 +248,7 @@ class Data:
         points = np.array(points)
         values = np.array(values)
         # 5. Interpolate target in log-space
-        target_point = np.array([[np.log1p(seperation), twist]])
+        target_point = np.array([[np.log1p(separation), twist]])
         # Linear interpolation
         result = griddata(points, values, target_point, method='linear')[0]
          
@@ -252,7 +261,7 @@ class Data:
     def get_reynolds_correction_factor(self)->float:
         if self.source != "miller":
             raise RuntimeWarning("Data source for Reynolds correction should be Miller")
-        return self._miller_interpolated_reynolds_correction(flow.reynolds)
+        return self._miller_interpolated_reynolds_correction(self.flow.reynolds)
     
     def _miller_interpolated_reynolds_correction(self,re:float,json_path="Data Sources/miller_reynolds_correction.json")->float:
         # Load data from JSON
@@ -282,13 +291,13 @@ class Data:
         xi = np.array([[log_re_input]])
         
         # griddata returns an array; we extract the scalar value
-        c_value = griddata(points, c_original, xi, method='linear')[0]
+        c_value = griddata(points, c_original, xi, method='linear')
         
         # Fallback to nearest if linear fails on the boundary
         if np.isnan(c_value):
-            c_value = griddata(points, c_original, xi, method='nearest')[0]
+            c_value = griddata(points, c_original, xi, method='nearest')
         
-        return float(c_value)
+        return float(c_value[0])
     
     # Correcting for shortened outlet
     def get_outlet_correction_factor(self, rd:int, outlet_length:float, diameter_ratio:float=1)->float:
@@ -297,7 +306,7 @@ class Data:
         
         if self.source == "miller":
             if diameter_ratio != 1:
-                raise ValueError("Miller data for outlet correction only supports area ratio of 1")
+                raise ValueError("Miller data for outlet correction only supports diameter ratio of 1")
             return self._miller_outlet_correction_factor(rd, outlet_length)
         elif self.source == "turner":
             return self._turner_outlet_correction_factor(rd,diameter_ratio,outlet_length)
@@ -373,13 +382,13 @@ class Data:
         return float(c_value)
         
     # Finding scramble coefficient
-    def get_scramble_correction(self, rd1:int, rd2:int, seperation:float, diameter_ratio=1, angles=[0,30,60,90,120,150,180])->tuple[float,float,float]:
+    def get_scramble_correction(self, rd1:int, rd2:int, separation:float, diameter_ratio=1, angles=[0,30,60,90,120,150,180])->tuple[float,float,float]:
         """ Calculates the average, minimum, and maximum scramble coefficients across a set of orientations for the second elbow.
 
         Args:
             rd1 (int): R/D for bend 1 [-]
             rd2 (int): R/D for bend 2 [-]
-            seperation (float): seperation/D [-]
+            separation (float): separation/D [-]
             angles (list, optional): relative orientations to test [deg]. Defaults to [0,30,60,90,120,150,180].
 
         Returns:
@@ -389,7 +398,7 @@ class Data:
         
         for angle in angles:
             # Get correction factor for this specific orientation
-            correction = self.get_elbow_correction_factor(rd1, rd2, seperation, angle, diameter_ratio)
+            correction = self.get_elbow_correction_factor(rd1, rd2, separation, angle, diameter_ratio)
             
             # Calculate individual scramble
             if self.source == "miller":
@@ -397,11 +406,11 @@ class Data:
                     raise ValueError("For Miller method diameter_ratio must be equal to 1")
                 k1_star = self._ito_k(rd1, self.flow.reynolds) / self._miller_interpolated_reynolds_correction(self.flow.reynolds)
                 k2_star = self._ito_k(rd2, self.flow.reynolds) / self._miller_interpolated_reynolds_correction(self.flow.reynolds)
-                s = (correction*(k1_star+k2_star) - k1_star*self._miller_outlet_correction_factor(rd1,seperation))/k2_star
+                s = (correction*(k1_star+k2_star) - k1_star*self._miller_outlet_correction_factor(rd1,separation))/k2_star
             elif self.source == "turner":
                 k1 = self._turner_elbow_k(rd1, self.flow.reynolds, diameter_ratio)
-                k2= self._turner_elbow_k(rd1, self.flow.reynolds, diameter_ratio)
-                s = (correction*(k1+k2) - k1*self._turner_outlet_correction_factor(rd1,diameter_ratio,seperation))/k2
+                k2= self._turner_elbow_k(rd2, self.flow.reynolds, diameter_ratio)
+                s = (correction*(k1+k2) - k1*self._turner_outlet_correction_factor(rd1,diameter_ratio,separation))/k2
             else:
                 raise RuntimeError("Scramble coefficient only supported for Miller and Turner sources")
             angle_scrambles.append(s)
@@ -458,7 +467,7 @@ class Solver:
         L_d = 0
         for pipe in pipes:
             L_d +=  pipe.length_d
-        drop = self.blasius_source.get_pipe_loss(L_d*flow.diameter)
+        drop = self.blasius_source.get_pipe_loss(L_d)
         # Pressure drop in the bends
         bend = bends[0]
         next_pipe = pipes[1]
@@ -493,7 +502,7 @@ class Solver:
         L_d = 0
         for pipe in pipes:
             L_d +=  pipe.length_d
-        drop = self.blasius_source.get_pipe_loss(L_d*flow.diameter)
+        drop = self.blasius_source.get_pipe_loss(L_d)
         # Pressure drop in the bends
         K = 0
         for bend in bends:
@@ -530,16 +539,47 @@ class Solver:
 
 
 if __name__ == "__main__":
-    flow = Flow(5,998,1E-3,10E-3)    
+    flow = Flow(5,998,1E-3,10E-3)  
     inlet = PipeSection(5)
-    connector_1 = PipeSection(2)
-    connector_2 = PipeSection(5)
-    contraction = 1.1
-    bend_1 = Bend(3,0,contraction)
-    bend_2 = Bend(3,0,contraction)
-    bend_3 = Bend(3,0,contraction)
     outlet = PipeSection(40)
+    connector  = PipeSection(5)
+    pipes = [inlet, connector, connector, connector, outlet]
+    bend0 = Bend(3,0.1,1)
+    bend180= Bend(3,180,1)
+    bends = [bend0, bend0, bend180, bend0]
+    blasius = Data("blasius", flow)
+    
+    # Initialise your solver
+    solver = Solver("oriented", "miller", flow)
+    
+    # Calculate and return your expected pressure drop
+    print((24143 - solver.get_pressure_drop(bends,pipes))/(24143-blasius.get_pipe_loss(45)))
+    """"
+    
+    # Set your flow conditions in SI units
+    flow = Flow(5,998,1E-3,10E-3)   
+    
+    # Set your inlet and connectors in terms of the pipe diameter 
+    inlet = PipeSection(5.5)
+    connector_1 = PipeSection(7)
+    connector_2 = PipeSection(4.6)
+    outlet = PipeSection(40)
+    
+    # Set your diameter ratio of the elbow to the pipe (must be 0.9, 1, 1.1 for turner, or 1 for miller)
+    diameter_ratio = 1
+    
+    # Set your bend characteristics
+    bend_1 = Bend(3,150.43,diameter_ratio)
+    bend_2 = Bend(2,0,diameter_ratio)
+    bend_3 = Bend(2,21.19,diameter_ratio)
+    
+    # Create your arrays that make up your pipe network
     pipes = [inlet, connector_1, connector_2, outlet]
     bends = [bend_1, bend_2, bend_3]
-    solver = Solver("oriented", "turner", flow)
+    
+    # Initialise your solver
+    solver = Solver("isolated", "miller", flow)
+    
+    # Calculate and return your expected pressure drop
     print(solver.get_pressure_drop(bends,pipes))
+    """

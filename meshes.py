@@ -187,6 +187,20 @@ def calculate_y_plus(y, v_bulk, D, rho, mu):
     
     return y_plus
 
+def twist_to_cad(twist1, twist2):
+    """
+    Calculates CAD parameterized angles for any continuous input.
+    ENGS-5844 Only
+    """
+    # CAD Angle 1 is a direct 1:1 mapping
+    cad_a1 = float(twist1) % 360
+    
+    # CAD Angle 2 follows the relative rotation logic: (T1 - T2 + 270)
+    # This maintains the S, Z, U geometric relationships.
+    cad_a2 = (float(twist1) - float(twist2) + 270) % 360
+    
+    # Return as formatted 3-digit strings
+    return f"{int(cad_a1):03d}", f"{int(cad_a2):03d}"
 
-print(2*first_layer_height(3, 0.01, 998, 1E-3, 1))
-print(calculate_inflation_total_height(0.3E-3, 3, 7.8E-6, 25)*1000)
+
+#print(1000*first_layer_height(3, 10E-3,998,1E-3,1)/0.5)

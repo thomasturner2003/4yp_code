@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.stats import qmc
+import meshes
 
 def sample_list(options:list, n_samples:int):
     rng = np.random.default_rng()
@@ -29,56 +30,49 @@ def sample_transformed_log(n_samples:int, min_val:float=2, max_val:float=30)->li
     return d_values
 
 
-def latin_hypercube(n_samples=60, seed=42):
+def latin_hypercube_triplets(n_samples=60, seed=43):
     """
-    Generates a Latin Hypercube Sample for pipe flow validation.
-    
-    Parameters:
-    - n_samples: Total number of experimental runs (will be split between radii).
-    - seed: For reproducibility.
-    
-    Returns:
-    - pd.DataFrame: DOE matrix with Radius, Orientation, and Separation.
+    Generates a DOE where each row is a 'triplet' data point:
+    - 3 Random Radii (Selected from [2, 3] or a range)
+    - 2 Random Separations (Natural Log 2-30)
+    - 2 Random Orientations (Linear 0-180)
     """
     # 1. Configuration
-    radii = [2, 3]
-    samples_per_r = n_samples // len(radii)
+    # We need 7 dimensions: 3 for R, 2 for S, 2 for O
+    sampler = qmc.LatinHypercube(d=7, seed=seed)
+    raw = sampler.random(n=n_samples)
     
     # Natural log boundaries for S/D (2 to 30)
     ln_min, ln_max = np.log(2), np.log(30)
     
-    # 2. Initialize LHS Sampler (2D: Orientation and Separation)
-    sampler = qmc.LatinHypercube(d=2, seed=seed)
+    # 2. Extract and Transform Dimensions
+    # Radii: Assuming you want them picked from the [2, 3] set randomly
+    # We use the raw [0,1] value to pick 2 or 3
+    r1 = np.where(raw[:, 0] < 0.5, 20, 30)
+    r2 = np.where(raw[:, 1] < 0.5, 20, 30)
+    r3 = np.where(raw[:, 2] < 0.5, 20, 30)
     
-    results = []
+    # Separations: New Formula (Natural Log)
+    s1 = 10*np.exp(ln_min + raw[:, 3] * (ln_max - ln_min))
+    s2 = 10*np.exp(ln_min + raw[:, 4] * (ln_max - ln_min))
     
-    for r in radii:
-        # Generate raw samples in [0, 1]
-        raw = sampler.random(n=samples_per_r)
-        
-        # Transform: Orientation (Linear 0-180)
-        orient = raw[:, 0] * 180
-        
-        # Transform: Separation (Natural Log 2-30)
-        # Formula: exp( ln_min + (normalized_val * (ln_max - ln_min)) )
-        sep = np.exp(ln_min + raw[:, 1] * (ln_max - ln_min))
-        
-        df_r = pd.DataFrame({
-            'Bend_Radius_D': r,
-            'Orientation_deg': orient,
-            'Separation_D': sep
-        })
-        results.append(df_r)
+    # Orientations: Linear 0-180
+    orientations = []
+    o1 = raw[:, 5] * 180
+    o2 = raw[:, 6] * 180
+    for or1,or2 in zip(o1,o2):
+        orientations.append(meshes.twist_to_cad(or1, or2))
+    # 3. Build the DataFrame
+    df = pd.DataFrame({
+        'R1': r1, 'R2': r2, 'R3': r3,
+        'Sep1': s1, 'Sep2': s2,
+        'Orientations': orientations,
+        'Twist angles': zip(o1,o2)
+    })
     
-    # 3. Combine and Shuffle
-    # Shuffling ensures that you don't run all 'Radius 2' cases then all 'Radius 3'
-    df_final = pd.concat(results).sample(frac=1, random_state=seed).reset_index(drop=True)
-    
-    return df_final
+    return df
 
-samples = sample_list([(0.01,90),(0.01,270), (180,90), (180, 270)], 20)
-samples = sample_list([20,30], 20)
-#samples = sample_transformed_log(10, 2, 30)
-for sample in samples:
-    print(sample)
-
+print(latin_hypercube_triplets(20))
+#points = sample_transformed_log(6)
+#for point in points:
+#    print(point)

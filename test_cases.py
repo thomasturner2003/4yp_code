@@ -33,11 +33,13 @@ def json_case_generator(file_path):
         }
         yield case
         
-file_paths = ['Dataset/expansion_triplets.json', 'Dataset/random_triplets.json', 'Dataset/contraction_triplets.json' ]
-diameter_ratios= [1.1, 1, 0.9]
+#file_paths = ['Dataset/expansion_triplets.json', 'Dataset/random_triplets.json', 'Dataset/contraction_triplets.json' ]
+#diameter_ratios= [1.1, 1, 0.9]
+file_paths = ['Dataset/latin_triplets_n10.json', 'Dataset/latin_triplets_n19.json', 'Dataset/random_triplets.json', 'Dataset/short_short_triplets.json']
+diameter_ratios= [1,1, 1, 1]
 diameter = 10E-3
 flow = model.Flow(5,998,1E-3,diameter)
-solver = model.Solver("oriented", "turner", flow)
+solver = model.Solver("oriented", "miller", flow)
 
 blasius_source = model.Data("blasius", flow)
 for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
@@ -57,8 +59,9 @@ for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
         cfd_pressure_drop = case['pressure_drop']
         error = (cfd_pressure_drop - calculated_pressure_drop) / cfd_pressure_drop
         errors.append(error)
-        outlet_inlet_dp = blasius_source.get_pipe_loss(case['inlet_length'] + case['outlet_length'])
+        outlet_inlet_dp = blasius_source.get_pipe_loss((case['inlet_length'] + case['outlet_length'])/flow.diameter)
         elbows_errors.append((cfd_pressure_drop - calculated_pressure_drop) / (cfd_pressure_drop-outlet_inlet_dp))
     end = time.time()
+    #print(errors)
     print(f"{file_path}, MEAN Absolute: {100*np.mean(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.mean(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
     #print(f"{file_path}, MEDIAN Absolute: {100*np.median(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.median(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
