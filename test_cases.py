@@ -35,8 +35,10 @@ def json_case_generator(file_path):
         
 #file_paths = ['Dataset/expansion_triplets.json', 'Dataset/random_triplets.json', 'Dataset/contraction_triplets.json' ]
 #diameter_ratios= [1.1, 1, 0.9]
-file_paths = ['Dataset/latin_triplets_n10.json', 'Dataset/latin_triplets_n19.json','Dataset/latin_triplets_n20.json']
-diameter_ratios= [1,1, 1]
+#file_paths = ['Dataset/latin_triplets_n10.json', 'Dataset/latin_triplets_n19.json','Dataset/latin_triplets_n20.json']
+#diameter_ratios= [1,1, 1]
+file_paths = ["Dataset/latin_triplets_n19.json"]
+diameter_ratios= [1]
 diameter = 10E-3
 flow = model.Flow(5,998,1E-3,diameter)
 solver = model.Solver("oriented", "miller", flow)

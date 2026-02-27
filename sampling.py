@@ -30,7 +30,7 @@ def sample_transformed_log(n_samples:int, min_val:float=2, max_val:float=30)->li
     return d_values
 
 
-def latin_hypercube_triplets(n_samples=60, seed=43):
+def latin_hypercube_triplets(n_samples=60, seed=42):
     """
     Generates a DOE where each row is a 'triplet' data point:
     - 3 Random Radii (Selected from [2, 3] or a range)
