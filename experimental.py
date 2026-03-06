@@ -1,5 +1,6 @@
 import math
 
+
 def flow_rate_to_speed(diameter:float, flow_rate:float)->float:
     """Converts L/min to m/s
 
@@ -44,7 +45,9 @@ def blasius_dp(flow_rate:float, viscosity:float, length:float, density:float=998
     """
     re = flow_rate_to_reynolds(flow_rate, viscosity, density=density, diameter=diameter)
     speed = flow_rate_to_speed(diameter,flow_rate)
-    friction_factor = 0.3164/(re**0.25)
+    eps = 0.0015E-3
+    friction_factor = 0.25 / (math.log10(eps/(3.7*diameter) + 5.74/(re**0.9))**2)
+    #friction_factor = 0.3164/(re**0.25)
     return friction_factor*(length/diameter)*(density*speed**2)/2
 
 
@@ -91,30 +94,25 @@ def calculate_pipe_roughness(dp, length, flow_rate, viscosity, diameter=10E-3, d
 
 if __name__ == "__main__":
     #dps = [6784, 5971, 5330, 3668, 2730]
-    flow_rates = [14.9, 9.83, 12.31, 12.88, 11.89, 11.38, 10.16]
-    dps = [12521, 6040, 8729, 9556, 8115, 7543, 6136, 5605]
-    ls = [1.03, 1.03, 1.03, 1.03, 1.03, 1.03, 1.03, 1.03]
-    #dps = [6784, 5971, 5330, 3668, 2730]
-    #flow_rates = [15.55,14.41,13.56,10.87,9.23]
-    #ls = [0.53,0.53,0.53,0.53,0.53]
-    k = 0.15
-    viscosity = 1E-3
-    for dp, flow_rate, length in zip(dps, flow_rates,ls):
-        #print(blasius_dp(flow_rate, viscosity, length))
-        #print(calculate_pipe_roughness(dp, length, flow_rate*1.03, viscosity))
-        flow_rate *= 1.073
-        dp_k = k*0.5*998*(flow_rate_to_speed(10E-3,flow_rate)**2)
-        dp -= dp_k
-        print(100*(blasius_dp(flow_rate, viscosity, length)-dp)/blasius_dp(flow_rate, viscosity, length))
-        #print(f"length: {length}, dp: {dp}, flow rate: {flow_rate} roughness: {calculate_pipe_roughness(dp, length, flow_rate, viscosity)}")
-        #print(calculate_pipe_roughness(dp, length, flow_rate*0.97, viscosity))
-    """
-    rate = 12.15
-    measured = 2800
-    dp = blasius_dp(rate,1.1E-3,0.585)
-    print(dp)
-    print((measured-dp)/(0.5*998*flow_rate_to_speed(10E-3,rate)))
-    print(flow_rate_to_reynolds(rate,1.1E-3))
-    print(flow_rate_to_speed(10E-3,rate))
+    #flow_rates = [14.9, 9.83, 12.31, 12.88, 11.89, 11.38, 10.16]
+    #dps = [12521, 6040, 8729, 9556, 8115, 7543, 6136]
+    #ls = [1.03, 1.03, 1.03, 1.03, 1.03, 1.03, 1.03, 1.03]
+    #
+    raw_rate = 14.03
+    rate = raw_rate*(1.182 - 0.0112*raw_rate)
+    measured = 8.438E3
+    viscosity = 1.1E-3
+    length = 580E-3
+    diameter = 10E-3
+    k = 0.13 + 0.25
+    momentum = 0.5*998*flow_rate_to_speed(diameter,rate)**2
+    dp_k = momentum*k
+    print(f"Adjusted flow rate: {rate}")
+    print(f"Pressure drop due to pressure sensor: {dp_k}")
+    dp = blasius_dp(rate,viscosity,length)
+    print(f"Pressure drop due to pipe: {(measured-dp_k)}")
+    print(f"Predicted pressure drop: {dp}")
+    print(f"Error: {100*((measured-dp_k)-dp)/(measured-dp_k)}%")
+    print(f"Reynolds: {flow_rate_to_reynolds(rate,viscosity)}")
+    print(f"Flow speed: {flow_rate_to_speed(diameter,rate)}")
     
-    """

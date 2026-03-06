@@ -37,11 +37,11 @@ def json_case_generator(file_path):
 #diameter_ratios= [1.1, 1, 0.9]
 #file_paths = ['Dataset/latin_triplets_n10.json', 'Dataset/latin_triplets_n19.json','Dataset/latin_triplets_n20.json']
 #diameter_ratios= [1,1, 1]
-file_paths = ["Dataset/latin_triplets_n19.json"]
-diameter_ratios= [1]
+file_paths = ["Dataset/45_deg_test.json"]
+diameter_ratios= [1,1,1]
 diameter = 10E-3
 flow = model.Flow(5,998,1E-3,diameter)
-solver = model.Solver("oriented", "miller", flow)
+solver = model.Solver("isolated", "turner", flow)
 
 blasius_source = model.Data("blasius", flow)
 for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
@@ -51,7 +51,7 @@ for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
     for case in json_case_generator(file_path):
         bends = [] 
         for r,o in zip(case['bend_radii'], case["twists"]):
-            bends.append(model.Bend(int(r/diameter),o, diameter_ratio=diameter_ratio))
+            bends.append(model.Bend(int(r/diameter),o, diameter_ratio=diameter_ratio, bend_angle=45))
         pipes = []
         pipes.append(model.PipeSection(case['inlet_length']/diameter))
         for l in case['connector_lengths']:
@@ -67,3 +67,4 @@ for file_path, diameter_ratio in zip(file_paths, diameter_ratios):
     #print(errors)
     print(f"{file_path}, MEAN Absolute: {100*np.mean(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.mean(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
     #print(f"{file_path}, MEDIAN Absolute: {100*np.median(np.abs(errors)):.2f}%, Excluding inlet and outlet: {100*np.median(np.abs(elbows_errors)):.2f}%, num points: {len(errors)}, time taken: {(end-start):.2f}s")
+    print((5.42*10 + 5.62*19 + 20*5.49)/49)
